@@ -49,12 +49,17 @@ class N8nClient:
         to do with the job row.
         """
         url = self._search_url()
-        body = {
-            "job_id": str(job_id),
+        # Wrap gateway-controlled metadata (api_job_id, callback_url, internal_secret)
+        # into the same ``payload`` dict that the n8n ``Normalize Entry`` node
+        # reads from. Partners' payload keys are preserved; gateway keys win on
+        # collision so a malicious/buggy partner can't spoof them.
+        enriched = {
+            **payload,
+            "api_job_id": str(job_id),
             "callback_url": f"{self.settings.api_base_url.rstrip('/')}/internal/jobs/{job_id}/complete",
             "internal_secret": self.settings.internal_shared_secret,
-            "payload": payload,
         }
+        body = {"payload": enriched}
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             logger.info("n8n.fire workflow=search job_id=%s url=%s", job_id, url)
             resp = await client.post(url, json=body)
