@@ -17,7 +17,7 @@ services:
       - key: LOG_LEVEL
         value: INFO
       - key: API_BASE_URL
-        value: https://try.cogrant.eu
+        value: https://api.cogrant.eu
       # --- Secrets — set these manually in the Render dashboard ---
       - key: AIRTABLE_PAT
         sync: false
