@@ -1,0 +1,20 @@
+[project]
+name = "cogrant-search-api"
+version = "0.1.0"
+description = "Partner-facing API gateway for Cogrant grant-search workflows."
+requires-python = ">=3.11"
+readme = "README.md"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "N"]
+# B008: FastAPI idiom uses Depends/Header as defaults — not a real bug.
+# E501: line length handled by formatter.
+ignore = ["E501", "B008"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

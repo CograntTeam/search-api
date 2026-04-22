@@ -1,0 +1,33 @@
+# Render Blueprint — see https://render.com/docs/blueprint-spec
+# Deploy: push to main, then Render -> New Blueprint -> select this repo.
+# All secrets must be set manually in the service's Environment tab after deploy.
+services:
+  - type: web
+    name: cogrant-search-api
+    runtime: python
+    region: frankfurt  # change if you prefer another EU region
+    plan: starter
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: ENV
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      - key: API_BASE_URL
+        value: https://try.cogrant.eu
+      # --- Secrets — set these manually in the Render dashboard ---
+      - key: AIRTABLE_PAT
+        sync: false
+      - key: AIRTABLE_BASE_ID
+        value: apphC0wbp5dYfACfb
+      - key: AIRTABLE_API_KEYS_TABLE_ID
+        value: tblfXzQKso559HNlQ
+      - key: AIRTABLE_API_JOBS_TABLE_ID
+        value: tbl5QazdvtAVbAHZO
+      - key: N8N_WEBHOOK_BASE_URL
+        sync: false
+      - key: INTERNAL_SHARED_SECRET
+        generateValue: true
