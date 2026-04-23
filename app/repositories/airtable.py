@@ -60,6 +60,10 @@ class AirtableRepo:
             self.settings.airtable_base_id,
             self.settings.airtable_api_jobs_table_id,
         )
+        self._search_matches = self._api.table(
+            self.settings.airtable_base_id,
+            self.settings.airtable_search_matches_table_id,
+        )
 
     # ------------------------------------------------------------------
     # api_keys
@@ -183,6 +187,35 @@ class AirtableRepo:
             fields["error"] = error
         rec = self._jobs.update(record_id, fields)
         return self._row_to_job(rec)
+
+    # ------------------------------------------------------------------
+    # Search Matches (read-only; owned by the n8n workflows)
+    # ------------------------------------------------------------------
+    def list_matches_for_job(self, api_job_id: UUID) -> list[dict[str, Any]]:
+        """Return all Search Match rows whose ``api_job_id`` equals the given
+        UUID. Includes only the fields the gateway exposes to partners.
+
+        pyairtable's ``.all()`` auto-paginates server-side (100 rows per page),
+        so this is a single logical call from the gateway's perspective even
+        when a run produces hundreds of matches. Order is by Airtable's native
+        record order; callers that need a stable ordering should sort client-
+        side on ``Match Id`` or ``Created Time``.
+        """
+        # UUIDs contain only hex + dashes, so they're safe inside a single-
+        # quoted Airtable formula literal. We still lean on pyairtable for
+        # encoding, rather than f-stringing arbitrary values.
+        formula = f"{{api_job_id}} = '{api_job_id}'"
+        records = self._search_matches.all(
+            formula=formula,
+            fields=[
+                "api_job_id",
+                "Raw Json",
+                "Grant Details JSON",
+                "Match Id",
+                "Created Time",
+            ],
+        )
+        return records
 
     # ------------------------------------------------------------------
     # internals

@@ -33,26 +33,20 @@ class N8nClient:
     def _search_url(self) -> str:
         return self.settings.n8n_webhook_url(self.settings.n8n_search_path)
 
-    def _match_a_url(self) -> str:
-        return self.settings.n8n_webhook_url(self.settings.n8n_match_check_a_path)
-
-    def _match_b_url(self) -> str:
-        return self.settings.n8n_webhook_url(self.settings.n8n_match_check_b_path)
-
-    async def _fire(
-        self, *, workflow: str, url: str, job_id: UUID, payload: dict[str, Any]
+    async def fire_search(
+        self, *, job_id: UUID, payload: dict[str, Any]
     ) -> str | None:
-        """Common POST-to-n8n helper. Wraps gateway-controlled metadata into
-        the ``payload`` dict that n8n's ``Normalize Entry`` node reads from,
-        then POSTs to ``url``.
+        """POST the job to the n8n search workflow. Returns the n8n execution
+        id if one is in the response, else ``None``.
 
-        Partners' payload keys are preserved; gateway keys win on collision so
-        a malicious/buggy partner can't spoof them.
-
-        Returns the n8n execution id if one is in the response, else ``None``.
         Raises ``httpx.HTTPError`` on transport failure; caller decides what
         to do with the job row.
         """
+        url = self._search_url()
+        # Wrap gateway-controlled metadata (api_job_id, callback_url, internal_secret)
+        # into the same ``payload`` dict that the n8n ``Normalize Entry`` node
+        # reads from. Partners' payload keys are preserved; gateway keys win on
+        # collision so a malicious/buggy partner can't spoof them.
         enriched = {
             **payload,
             "api_job_id": str(job_id),
@@ -61,9 +55,7 @@ class N8nClient:
         }
         body = {"payload": enriched}
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            logger.info(
-                "n8n.fire workflow=%s job_id=%s url=%s", workflow, job_id, url
-            )
+            logger.info("n8n.fire workflow=search job_id=%s url=%s", job_id, url)
             resp = await client.post(url, json=body)
             resp.raise_for_status()
             try:
@@ -75,36 +67,3 @@ class N8nClient:
             if isinstance(data, dict):
                 return data.get("executionId") or data.get("execution_id")
             return None
-
-    async def fire_search(
-        self, *, job_id: UUID, payload: dict[str, Any]
-    ) -> str | None:
-        """POST the job to the n8n search workflow (1.0)."""
-        return await self._fire(
-            workflow="search",
-            url=self._search_url(),
-            job_id=job_id,
-            payload=payload,
-        )
-
-    async def fire_match_check_a(
-        self, *, job_id: UUID, payload: dict[str, Any]
-    ) -> str | None:
-        """POST the job to the n8n match-check A workflow (1.1A)."""
-        return await self._fire(
-            workflow="match_check_a",
-            url=self._match_a_url(),
-            job_id=job_id,
-            payload=payload,
-        )
-
-    async def fire_match_check_b(
-        self, *, job_id: UUID, payload: dict[str, Any]
-    ) -> str | None:
-        """POST the job to the n8n match-check B workflow (1.1B)."""
-        return await self._fire(
-            workflow="match_check_b",
-            url=self._match_b_url(),
-            job_id=job_id,
-            payload=payload,
-        )

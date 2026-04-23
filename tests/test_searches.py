@@ -96,6 +96,14 @@ class FakeRepo:
         j.n8n_execution_id = n8n_execution_id
         j.updated_at = datetime.now(UTC)
 
+    # --- search matches --------------------------------------------------
+    # Keyed by job_id so tests can seed rows per job. Each value is a list
+    # of Airtable-shaped rows: {"id": "rec…", "fields": {...}}.
+    matches_by_job: dict[UUID, list[dict[str, Any]]] = {}
+
+    def list_matches_for_job(self, api_job_id: UUID) -> list[dict[str, Any]]:
+        return list(self.matches_by_job.get(api_job_id, []))
+
     def complete_job(
         self,
         job_id: UUID,
@@ -271,107 +279,6 @@ def test_internal_callback_completes_job(monkeypatch):
     )
     assert r3.status_code == 200
     assert r3.json()["idempotent"] == "true"
-
-
-# ---------------------------------------------------------------------------
-# Match-check endpoints — share the exact same shape as /v1/searches,
-# so we only need a thin sanity check per variant.
-# ---------------------------------------------------------------------------
-def test_match_check_a_create_and_get(monkeypatch):
-    async def fake_fire(self, *, job_id, payload):  # noqa: ANN001
-        return "exec_a"
-
-    monkeypatch.setattr(
-        "app.services.n8n.N8nClient.fire_match_check_a", fake_fire
-    )
-
-    r = client.post(
-        "/v1/match-checks/a",
-        json={"payload": {"company_id": "recABC123", "call_ids": ["x", "y"]}},
-        headers={"Authorization": f"Bearer {PARTNER_KEY_PLAINTEXT}"},
-    )
-    assert r.status_code == 202, r.text
-    job_id = r.json()["job_id"]
-
-    r2 = client.get(
-        f"/v1/match-checks/a/{job_id}",
-        headers={"Authorization": f"Bearer {PARTNER_KEY_PLAINTEXT}"},
-    )
-    assert r2.status_code == 200, r2.text
-    assert r2.json()["workflow_kind"] == "match_check_a"
-
-    # Wrong endpoint for this job kind → 404 (not 403) to avoid leaking existence.
-    r3 = client.get(
-        f"/v1/match-checks/b/{job_id}",
-        headers={"Authorization": f"Bearer {PARTNER_KEY_PLAINTEXT}"},
-    )
-    assert r3.status_code == 404
-
-    r4 = client.get(
-        f"/v1/searches/{job_id}",
-        headers={"Authorization": f"Bearer {PARTNER_KEY_PLAINTEXT}"},
-    )
-    assert r4.status_code == 404
-
-
-def test_match_check_b_create_and_get(monkeypatch):
-    async def fake_fire(self, *, job_id, payload):  # noqa: ANN001
-        return "exec_b"
-
-    monkeypatch.setattr(
-        "app.services.n8n.N8nClient.fire_match_check_b", fake_fire
-    )
-
-    r = client.post(
-        "/v1/match-checks/b",
-        json={"payload": {"company_id": "recABC123", "call_ids": ["z"]}},
-        headers={"Authorization": f"Bearer {PARTNER_KEY_PLAINTEXT}"},
-    )
-    assert r.status_code == 202, r.text
-    job_id = r.json()["job_id"]
-
-    r2 = client.get(
-        f"/v1/match-checks/b/{job_id}",
-        headers={"Authorization": f"Bearer {PARTNER_KEY_PLAINTEXT}"},
-    )
-    assert r2.status_code == 200
-    assert r2.json()["workflow_kind"] == "match_check_b"
-
-
-def test_match_check_a_requires_auth():
-    r = client.post(
-        "/v1/match-checks/a", json={"payload": {"company_id": "recX"}}
-    )
-    assert r.status_code == 401
-
-
-def test_match_check_empty_payload_422(monkeypatch):
-    r = client.post(
-        "/v1/match-checks/a",
-        json={"payload": {}},
-        headers={"Authorization": f"Bearer {PARTNER_KEY_PLAINTEXT}"},
-    )
-    assert r.status_code == 422
-
-
-def test_match_check_a_idempotency(monkeypatch):
-    async def fake_fire(self, *, job_id, payload):  # noqa: ANN001
-        return "exec_a_idem"
-
-    monkeypatch.setattr(
-        "app.services.n8n.N8nClient.fire_match_check_a", fake_fire
-    )
-
-    headers = {
-        "Authorization": f"Bearer {PARTNER_KEY_PLAINTEXT}",
-        "Idempotency-Key": "mc-a-idem-1",
-    }
-    body = {"payload": {"company_id": "recABC"}}
-    r1 = client.post("/v1/match-checks/a", json=body, headers=headers)
-    r2 = client.post("/v1/match-checks/a", json=body, headers=headers)
-    assert r1.status_code == 202
-    assert r2.status_code == 202
-    assert r1.json()["job_id"] == r2.json()["job_id"]
 
 
 def test_internal_callback_records_failure(monkeypatch):

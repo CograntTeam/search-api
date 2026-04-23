@@ -30,12 +30,13 @@ class Settings(BaseSettings):
     airtable_base_id: str = Field(..., pattern=r"^app[A-Za-z0-9]{14}$")
     airtable_api_keys_table_id: str = Field(..., pattern=r"^tbl[A-Za-z0-9]{14}$")
     airtable_api_jobs_table_id: str = Field(..., pattern=r"^tbl[A-Za-z0-9]{14}$")
+    airtable_search_matches_table_id: str = Field(
+        ..., pattern=r"^tbl[A-Za-z0-9]{14}$"
+    )
 
     # n8n
     n8n_webhook_base_url: str
     n8n_search_path: str = "search-initiation"
-    n8n_match_check_a_path: str = "match-check-a"
-    n8n_match_check_b_path: str = "match-check-b"
 
     # Internal shared secret for n8n -> gateway callbacks
     internal_shared_secret: str = Field(..., min_length=16)
