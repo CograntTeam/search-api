@@ -64,6 +64,61 @@ class AirtableRepo:
             self.settings.airtable_base_id,
             self.settings.airtable_search_matches_table_id,
         )
+        self._companies = self._api.table(
+            self.settings.airtable_base_id,
+            self.settings.airtable_companies_table_id,
+        )
+
+    # ------------------------------------------------------------------
+    # Companies
+    # ------------------------------------------------------------------
+    # Field IDs are hardcoded by design. These are write-only targets used
+    # by the new-company branch of POST /v1/searches; keeping them as IDs
+    # (not names) insulates the gateway from Airtable field renames.
+    _COMPANIES_NAME = "fldv3wHfnpt8qeRoM"
+    _COMPANIES_DESCRIPTION = "fld4QgZu6it7VmZyY"
+    _COMPANIES_COUNTRY = "fldkplI5JzXUkw6V0"
+    _COMPANIES_WEBSITE = "fldiX92NcEy8JiOLo"
+    _COMPANIES_ORG_TYPE = "fldYLkD9P3nBcJbXH"
+
+    def create_company(
+        self,
+        *,
+        name: str,
+        description: str,
+        country: str,
+        website: str | None = None,
+        organisation_type: str = "Private Business",
+    ) -> str:
+        """Create a Companies row and return its record ID.
+
+        Partner-supplied fields are passed through. ``organisation_type``
+        defaults to ``"Private Business"`` because the self-serve API is
+        scoped to that category; other types are onboarded manually.
+
+        Raises :class:`pyairtable.api.types.PyAirtableError` (or plain
+        ``requests`` errors) on Airtable failures — let them bubble up to
+        the router so we emit a 5xx envelope. We pass ``typecast=True``
+        so the ``Country`` and ``Organisation type`` singleSelect fields
+        accept partner-supplied string values; Airtable will 422 if the
+        string isn't a known option, which we translate to 422 upstream.
+        """
+        fields: dict[str, Any] = {
+            self._COMPANIES_NAME: name,
+            self._COMPANIES_DESCRIPTION: description,
+            self._COMPANIES_COUNTRY: country,
+            self._COMPANIES_ORG_TYPE: organisation_type,
+        }
+        if website:
+            fields[self._COMPANIES_WEBSITE] = website
+        rec = self._companies.create(fields, typecast=True)
+        logger.info(
+            "company.created record_id=%s country=%s type=%s",
+            rec["id"],
+            country,
+            organisation_type,
+        )
+        return rec["id"]
 
     # ------------------------------------------------------------------
     # api_keys

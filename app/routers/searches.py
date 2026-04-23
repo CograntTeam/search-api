@@ -19,6 +19,7 @@ from app.config import Settings, get_settings
 from app.errors import APIError, ErrorCode, openapi_error_responses
 from app.models.jobs import JobAccepted, JobCreate, JobStatus, JobView, WorkflowKind
 from app.models.keys import ApiKey
+from app.models.searches import DEFAULT_ORGANISATION_TYPE, SearchPayload
 from app.repositories.airtable import AirtableRepo
 from app.security import bearer_scheme, get_repo, require_api_key
 from app.services.n8n import N8nClient
@@ -32,6 +33,33 @@ router = APIRouter(
     # button covers every route on this router at once.
     dependencies=[Depends(bearer_scheme)],
 )
+
+
+def _pydantic_errors(exc: Exception) -> list[dict]:
+    """Best-effort conversion of a Pydantic ``ValidationError`` (or
+    anything with an ``errors()`` method) to a **JSON-safe** list of dicts
+    for the error envelope. Pydantic stores the original exception inside
+    ``ctx``, which isn't JSON-serialisable, so we keep only the fields we
+    explicitly surface to partners.
+    """
+    errors = getattr(exc, "errors", None)
+    if not callable(errors):
+        return [{"msg": str(exc)}]
+    try:
+        raw = list(errors())  # type: ignore[misc]
+    except Exception:  # noqa: BLE001
+        return [{"msg": str(exc)}]
+    safe: list[dict] = []
+    for e in raw:
+        item = {
+            "loc": list(e.get("loc", ())),
+            "type": e.get("type", ""),
+            "msg": str(e.get("msg", "")),
+        }
+        if "input" in e and isinstance(e["input"], (str, int, float, bool, type(None))):
+            item["input"] = e["input"]
+        safe.append(item)
+    return safe
 
 
 # ---------------------------------------------------------------------------
@@ -113,28 +141,86 @@ async def create_search(
                 status=JobStatus(existing.status),
                 created_at=existing.created_at,
             )
-    # Minimal payload sanity check — the real shape validation lives in n8n
-    # because the search contract may evolve faster than the gateway. We only
-    # require the body be a non-empty dict.
+    # Validate the payload shape: either company_id OR the new-company
+    # fields. Pydantic's ValidationError on this model is caught by our
+    # handler and surfaced as a 422 INVALID_REQUEST envelope with
+    # details.field_errors pointing at the offending field(s).
     if not isinstance(body.payload, dict) or not body.payload:
         raise APIError(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             code=ErrorCode.INVALID_REQUEST,
             message="payload must be a non-empty JSON object.",
         )
+    try:
+        sp = SearchPayload.model_validate(body.payload)
+    except Exception as exc:  # noqa: BLE001 — Pydantic ValidationError path
+        raise APIError(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            code=ErrorCode.INVALID_REQUEST,
+            message="payload validation failed.",
+            details={"field_errors": _pydantic_errors(exc)},
+        ) from exc
+
+    # New-company branch: create the Airtable row before firing the search.
+    # If Airtable rejects the singleSelect (e.g. unknown country) we treat
+    # it as partner input error and surface a 422; anything else is a 5xx.
+    if sp.company_id is None:
+        new_fields = sp.as_new_company_fields()
+        try:
+            created_company_id = repo.create_company(
+                name=new_fields.company_name,
+                description=new_fields.company_description,
+                country=new_fields.country,
+                website=new_fields.website,
+                organisation_type=DEFAULT_ORGANISATION_TYPE,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "company.create_failed partner=%s", api_key.partner_name
+            )
+            # pyairtable surfaces HTTP 422 from Airtable as
+            # ``HTTPError`` with response.status_code==422; we don't want
+            # to leak internal details, but we do want the partner to
+            # know it's their input (most commonly an unknown country).
+            message = str(exc) if "422" in str(exc) else (
+                "Failed to create company. Please try again or contact "
+                "support if this persists."
+            )
+            raise APIError(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY if "422" in str(exc)
+                else status.HTTP_502_BAD_GATEWAY,
+                code=ErrorCode.INVALID_REQUEST if "422" in str(exc)
+                else ErrorCode.INTERNAL_ERROR,
+                message=message,
+            ) from exc
+        resolved_company_id = created_company_id
+        logger.info(
+            "search.company_created partner=%s company_id=%s",
+            api_key.partner_name,
+            created_company_id,
+        )
+    else:
+        resolved_company_id = sp.company_id
+
+    # Always forward a concrete company_id to n8n; strip any new-company
+    # fields so the downstream workflow never sees them.
+    forwarded = sp.forwarded_payload(company_id=resolved_company_id)
 
     job_id = uuid4()
     job = repo.create_job(
         job_id=job_id,
         api_key_record_id=api_key.record_id,
         workflow_kind=WorkflowKind.SEARCH,
-        request_payload=body.payload,
+        request_payload=forwarded,
         callback_url=body.callback_url,
         idempotency_key=idempotency_key,
     )
-    background.add_task(_dispatch_search, job_id, body.payload, settings, repo)
+    background.add_task(_dispatch_search, job_id, forwarded, settings, repo)
     logger.info(
-        "search.created job_id=%s partner=%s", job_id, api_key.partner_name
+        "search.created job_id=%s partner=%s company_id=%s",
+        job_id,
+        api_key.partner_name,
+        resolved_company_id,
     )
     return JobAccepted(
         job_id=job.job_id,

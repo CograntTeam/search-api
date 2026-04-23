@@ -50,7 +50,7 @@ def _seed_done_job_with_matches(
         job_id=job_id,
         api_key_record_id=partner_record_id,
         workflow_kind=__import__("app.models.jobs", fromlist=["WorkflowKind"]).WorkflowKind.SEARCH,
-        request_payload={"organisation": "AcmeBio"},
+        request_payload={"company_id": "recABCDEFGHIJKLMN"},
     )
     # Flip to DONE manually (bypasses the callback path for brevity).
     j = FAKE_REPO.jobs[job_id]
@@ -100,7 +100,7 @@ def test_matches_queued_returns_409(monkeypatch):
     # Create via the real POST so status starts as queued.
     r = client.post(
         "/v1/searches",
-        json={"payload": {"organisation": "AcmeBio"}},
+        json={"payload": {"company_id": "recABCDEFGHIJKLMN"}},
         headers={"Authorization": f"Bearer {PARTNER_KEY_PLAINTEXT}"},
     )
     job_id = r.json()["job_id"]

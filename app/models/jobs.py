@@ -50,11 +50,18 @@ class JobCreate(BaseModel):
         json_schema_extra={
             "examples": [
                 {
-                    "payload": {
-                        "company_id": "recABCDEFGHIJKLMN",
-                    },
+                    "payload": {"company_id": "recABCDEFGHIJKLMN"},
                     "callback_url": "https://partner.example/webhooks/cogrant",
-                }
+                },
+                {
+                    "payload": {
+                        "company_name": "Acme Bio",
+                        "company_description": "Fermentation-based protein "
+                                               "for the food industry.",
+                        "country": "Lithuania",
+                        "website": "https://acme.bio",
+                    }
+                },
             ]
         }
     )
@@ -62,10 +69,18 @@ class JobCreate(BaseModel):
     payload: dict[str, Any] = Field(
         ...,
         description=(
-            "Workflow-specific input. For ``search`` jobs this is a JSON object "
-            "with at minimum ``company_id`` (an Airtable record ID from the "
-            "Companies table) identifying the client profile to search against. "
-            "Extra keys are forwarded to the underlying workflow as-is."
+            "Search input. Two shapes are accepted:\n\n"
+            "* **Existing company** — ``{\"company_id\": \"rec...\"}`` where "
+            "the record ID points at an existing row in Cogrant's Companies "
+            "table.\n"
+            "* **New company** — ``{\"company_name\": \"...\", "
+            "\"company_description\": \"...\", \"country\": \"...\", "
+            "\"website\": \"...\"}``. The gateway creates the Companies row "
+            "on the fly (Organisation Type set to ``Private Business``) and "
+            "then runs the search against the new record. ``website`` is "
+            "optional; ``country`` must match one of the values on "
+            "Companies → Country.\n\n"
+            "Mixing ``company_id`` with new-company fields is rejected with 422."
         ),
     )
     callback_url: str | None = Field(

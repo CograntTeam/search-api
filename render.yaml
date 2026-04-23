@@ -27,6 +27,10 @@ services:
         value: tblfXzQKso559HNlQ
       - key: AIRTABLE_API_JOBS_TABLE_ID
         value: tbl5QazdvtAVbAHZO
+      - key: AIRTABLE_SEARCH_MATCHES_TABLE_ID
+        value: tblLPLC7MfX7nuxyr
+      - key: AIRTABLE_COMPANIES_TABLE_ID
+        value: tblelf4Z6wnpDKr5K
       - key: N8N_WEBHOOK_BASE_URL
         sync: false
       - key: INTERNAL_SHARED_SECRET

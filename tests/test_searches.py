@@ -106,6 +106,33 @@ class FakeRepo:
     def list_matches_for_job(self, api_job_id: UUID) -> list[dict[str, Any]]:
         return list(self.matches_by_job.get(api_job_id, []))
 
+    # --- companies --------------------------------------------------------
+    # Each create_company call records the fields and returns a synthetic
+    # record ID so downstream assertions can verify what we wrote.
+    created_companies: list[dict[str, Any]] = []
+
+    def create_company(
+        self,
+        *,
+        name: str,
+        description: str,
+        country: str,
+        website: str | None = None,
+        organisation_type: str = "Private Business",
+    ) -> str:
+        new_id = f"recCOMPANY{len(self.created_companies):06d}"
+        self.created_companies.append(
+            {
+                "id": new_id,
+                "name": name,
+                "description": description,
+                "country": country,
+                "website": website,
+                "organisation_type": organisation_type,
+            }
+        )
+        return new_id
+
     def complete_job(
         self,
         job_id: UUID,
@@ -155,35 +182,142 @@ def test_wrong_key_returns_401():
 
 
 # ---------------------------------------------------------------------------
-# POST /v1/searches
+# POST /v1/searches — existing-company path
 # ---------------------------------------------------------------------------
-def test_create_search_returns_202(monkeypatch):
-    # Stub n8n so no real HTTP happens.
+def test_create_search_with_existing_company_id(monkeypatch):
+    captured: dict = {}
+
     async def fake_fire(self, *, job_id, payload):  # noqa: ANN001
+        captured["payload"] = payload
         return "exec_123"
 
-    monkeypatch.setattr(
-        "app.services.n8n.N8nClient.fire_search", fake_fire
-    )
+    monkeypatch.setattr("app.services.n8n.N8nClient.fire_search", fake_fire)
 
     r = client.post(
         "/v1/searches",
-        json={"payload": {"organisation": "AcmeBio", "topic": "green-hydrogen"}},
+        json={"payload": {"company_id": "recEXISTINGCOMPANY"}},
         headers={"Authorization": f"Bearer {PARTNER_KEY_PLAINTEXT}"},
     )
     assert r.status_code == 202, r.text
     body = r.json()
     assert body["status"] == "queued"
-    UUID(body["job_id"])  # parses
+    UUID(body["job_id"])
+
+    # No new company should have been created on the existing-id path.
+    assert FAKE_REPO.created_companies == [] or all(
+        c["id"] != "recEXISTINGCOMPANY" for c in FAKE_REPO.created_companies
+    )
+    # The payload forwarded to n8n retains the company_id and nothing else
+    # from the new-company branch.
+    assert captured["payload"]["company_id"] == "recEXISTINGCOMPANY"
+    assert "company_name" not in captured["payload"]
 
 
-def test_empty_payload_422(monkeypatch):
+def test_empty_payload_422():
     r = client.post(
         "/v1/searches",
         json={"payload": {}},
         headers={"Authorization": f"Bearer {PARTNER_KEY_PLAINTEXT}"},
     )
     assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/searches — new-company path
+# ---------------------------------------------------------------------------
+def test_create_search_with_new_company(monkeypatch):
+    captured: dict = {}
+
+    async def fake_fire(self, *, job_id, payload):  # noqa: ANN001
+        captured["payload"] = payload
+        return "exec_newco"
+
+    monkeypatch.setattr("app.services.n8n.N8nClient.fire_search", fake_fire)
+
+    before = len(FAKE_REPO.created_companies)
+    r = client.post(
+        "/v1/searches",
+        json={
+            "payload": {
+                "company_name": "Acme Bio",
+                "company_description": "Fermentation-based protein.",
+                "country": "Lithuania",
+                "website": "https://acme.bio",
+            }
+        },
+        headers={"Authorization": f"Bearer {PARTNER_KEY_PLAINTEXT}"},
+    )
+    assert r.status_code == 202, r.text
+    # One company row created, with Private Business set automatically.
+    assert len(FAKE_REPO.created_companies) == before + 1
+    created = FAKE_REPO.created_companies[-1]
+    assert created["name"] == "Acme Bio"
+    assert created["description"] == "Fermentation-based protein."
+    assert created["country"] == "Lithuania"
+    assert created["website"] == "https://acme.bio"
+    assert created["organisation_type"] == "Private Business"
+
+    # n8n receives the fresh record ID, not the raw name fields.
+    assert captured["payload"]["company_id"] == created["id"]
+    assert "company_name" not in captured["payload"]
+    assert "company_description" not in captured["payload"]
+
+
+def test_new_company_without_website(monkeypatch):
+    async def fake_fire(self, *, job_id, payload):  # noqa: ANN001
+        return "exec_nowebsite"
+
+    monkeypatch.setattr("app.services.n8n.N8nClient.fire_search", fake_fire)
+    r = client.post(
+        "/v1/searches",
+        json={
+            "payload": {
+                "company_name": "No Website Co",
+                "company_description": "Stealth mode.",
+                "country": "Germany",
+            }
+        },
+        headers={"Authorization": f"Bearer {PARTNER_KEY_PLAINTEXT}"},
+    )
+    assert r.status_code == 202, r.text
+    assert FAKE_REPO.created_companies[-1]["website"] is None
+
+
+def test_new_company_missing_country_is_422():
+    r = client.post(
+        "/v1/searches",
+        json={
+            "payload": {
+                "company_name": "No Country Co",
+                "company_description": "Forgot the country.",
+            }
+        },
+        headers={"Authorization": f"Bearer {PARTNER_KEY_PLAINTEXT}"},
+    )
+    assert r.status_code == 422
+    body = r.json()
+    assert body["error"]["code"] == "INVALID_REQUEST"
+    # field_errors mentions the missing piece.
+    fe = body["error"]["details"]["field_errors"]
+    assert any("country" in str(err).lower() for err in fe)
+
+
+def test_cannot_mix_company_id_and_new_company_fields():
+    r = client.post(
+        "/v1/searches",
+        json={
+            "payload": {
+                "company_id": "recEXISTING",
+                "company_name": "Ambiguous",
+                "company_description": "...",
+                "country": "Lithuania",
+            }
+        },
+        headers={"Authorization": f"Bearer {PARTNER_KEY_PLAINTEXT}"},
+    )
+    assert r.status_code == 422
+    body = r.json()
+    assert body["error"]["code"] == "INVALID_REQUEST"
 
 
 # ---------------------------------------------------------------------------
@@ -199,7 +333,7 @@ def test_idempotency_returns_same_job(monkeypatch):
         "Authorization": f"Bearer {PARTNER_KEY_PLAINTEXT}",
         "Idempotency-Key": "idem-abc-123",
     }
-    body = {"payload": {"organisation": "AcmeBio"}}
+    body = {"payload": {"company_id": "recABCDEFGHIJKLMN"}}
     r1 = client.post("/v1/searches", json=body, headers=headers)
     r2 = client.post("/v1/searches", json=body, headers=headers)
     assert r1.status_code == 202
@@ -226,7 +360,7 @@ def test_get_search_returns_job(monkeypatch):
 
     r = client.post(
         "/v1/searches",
-        json={"payload": {"organisation": "AcmeBio"}},
+        json={"payload": {"company_id": "recABCDEFGHIJKLMN"}},
         headers={"Authorization": f"Bearer {PARTNER_KEY_PLAINTEXT}"},
     )
     job_id = r.json()["job_id"]
@@ -260,7 +394,7 @@ def test_internal_callback_completes_job(monkeypatch):
 
     r = client.post(
         "/v1/searches",
-        json={"payload": {"organisation": "AcmeBio"}},
+        json={"payload": {"company_id": "recABCDEFGHIJKLMN"}},
         headers={"Authorization": f"Bearer {PARTNER_KEY_PLAINTEXT}"},
     )
     job_id = r.json()["job_id"]
@@ -291,7 +425,7 @@ def test_internal_callback_records_failure(monkeypatch):
 
     r = client.post(
         "/v1/searches",
-        json={"payload": {"organisation": "AcmeBio"}},
+        json={"payload": {"company_id": "recABCDEFGHIJKLMN"}},
         headers={"Authorization": f"Bearer {PARTNER_KEY_PLAINTEXT}"},
     )
     job_id = r.json()["job_id"]

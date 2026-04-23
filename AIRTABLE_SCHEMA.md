@@ -49,12 +49,29 @@ Async job records. One row per partner API request.
 | updated_at | `fldbUCoaMU4hln1GC` | dateTime (ISO/24h/utc) | |
 | completed_at | `fld9XARwPVNiu9Ulh` | dateTime (ISO/24h/utc) | Set when status = done or failed |
 
+## Table: `Companies` — `tblelf4Z6wnpDKr5K`
+
+Partner-facing company profiles. The gateway writes into this table when a
+partner creates a new company inline with a search via the new-company
+branch of `POST /v1/searches`. Only these five fields are touched — the
+rest are owned by the CRM / sales team.
+
+| Field | ID | Type | Notes |
+|---|---|---|---|
+| Company name (primary) | `fldv3wHfnpt8qeRoM` | singleLineText | From `company_name` |
+| Company description | `fld4QgZu6it7VmZyY` | richText | From `company_description` |
+| Country | `fldkplI5JzXUkw6V0` | singleSelect | From `country` — must match an existing option |
+| Company website | `fldiX92NcEy8JiOLo` | url | Optional, from `website` |
+| Organisation type | `fldYLkD9P3nBcJbXH` | singleSelect | Always set to `Private Business` by the gateway |
+
 ## Suggested `.env` entries
 
 ```
 AIRTABLE_BASE_ID=apphC0wbp5dYfACfb
 AIRTABLE_API_KEYS_TABLE_ID=tblfXzQKso559HNlQ
 AIRTABLE_API_JOBS_TABLE_ID=tbl5QazdvtAVbAHZO
+AIRTABLE_SEARCH_MATCHES_TABLE_ID=tblLPLC7MfX7nuxyr
+AIRTABLE_COMPANIES_TABLE_ID=tblelf4Z6wnpDKr5K
 AIRTABLE_PAT=<personal access token with schema.bases:read + data.records:read + data.records:write on the Cogrant base>
 ```
 

@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     airtable_search_matches_table_id: str = Field(
         ..., pattern=r"^tbl[A-Za-z0-9]{14}$"
     )
+    airtable_companies_table_id: str = Field(
+        ..., pattern=r"^tbl[A-Za-z0-9]{14}$"
+    )
 
     # n8n
     n8n_webhook_base_url: str

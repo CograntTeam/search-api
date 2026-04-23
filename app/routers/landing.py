@@ -123,13 +123,34 @@ _LANDING_HTML = """<!doctype html>
       <h2>2&nbsp;&middot;&nbsp;Kick off a search</h2>
       <p>
         <code>POST /v1/searches</code> is accepted asynchronously; the response
-        returns a <code>job_id</code> you then poll.
+        returns a <code>job_id</code> you then poll. Two payload shapes are
+        supported &mdash; pick one per request.
       </p>
+      <p><strong>Existing company</strong> &mdash; if the company already has a
+        profile in Cogrant:</p>
 <pre>curl -sS -X POST https://api.cogrant.eu/v1/searches \\
   -H 'Authorization: Bearer cog_live_...' \\
   -H 'Content-Type: application/json' \\
   -H 'Idempotency-Key: sprint-42-client-acme' \\
   -d '{"payload": {"company_id": "recABCDEFGHIJKLMN"}}'</pre>
+      <p style="margin-top:14px"><strong>New company</strong> &mdash; the
+        gateway creates the profile on the fly (Organisation Type is set to
+        <code>Private Business</code>) and then runs the search:</p>
+<pre>curl -sS -X POST https://api.cogrant.eu/v1/searches \\
+  -H 'Authorization: Bearer cog_live_...' \\
+  -H 'Content-Type: application/json' \\
+  -d '{"payload": {
+    "company_name": "Acme Bio",
+    "company_description": "Fermentation-based protein for the food industry.",
+    "country": "Lithuania",
+    "website": "https://acme.bio"
+  }}'</pre>
+      <p style="margin-top:14px; font-size: 14px">
+        <code>company_name</code>, <code>company_description</code>, and
+        <code>country</code> are required; <code>website</code> is optional.
+        <code>country</code> must match one of the values Cogrant uses on the
+        Companies &rarr; Country field.
+      </p>
     </section>
 
     <section>
