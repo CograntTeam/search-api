@@ -1,9 +1,32 @@
-"""Structured JSON logging setup."""
+"""Structured JSON logging setup.
+
+One line per log record, JSON-encoded to stdout. Every record carries the
+active request ID when one is in flight, sourced from a contextvar so it
+survives background tasks and doesn't need explicit plumbing.
+"""
 
 import logging
 import sys
+from typing import Any
 
 from pythonjsonlogger import jsonlogger
+
+from app.middleware import current_request_id
+
+
+class CograntJsonFormatter(jsonlogger.JsonFormatter):
+    """JSON formatter that adds ``request_id`` when available."""
+
+    def add_fields(
+        self,
+        log_record: dict[str, Any],
+        record: logging.LogRecord,
+        message_dict: dict[str, Any],
+    ) -> None:
+        super().add_fields(log_record, record, message_dict)
+        rid = current_request_id.get()
+        if rid:
+            log_record["request_id"] = rid
 
 
 def configure_logging(level: str = "INFO") -> None:
@@ -16,7 +39,7 @@ def configure_logging(level: str = "INFO") -> None:
     root.setLevel(level)
 
     handler = logging.StreamHandler(sys.stdout)
-    formatter = jsonlogger.JsonFormatter(
+    formatter = CograntJsonFormatter(
         fmt="%(asctime)s %(name)s %(levelname)s %(message)s",
         rename_fields={"asctime": "ts", "levelname": "level", "name": "logger"},
     )

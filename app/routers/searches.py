@@ -13,9 +13,10 @@ from typing import Annotated
 from uuid import UUID, uuid4
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, Response, status
 
 from app.config import Settings, get_settings
+from app.errors import APIError, ErrorCode, openapi_error_responses
 from app.models.jobs import JobAccepted, JobCreate, JobStatus, JobView, WorkflowKind
 from app.models.keys import ApiKey
 from app.repositories.airtable import AirtableRepo
@@ -66,20 +67,25 @@ async def _dispatch_search(
     status_code=status.HTTP_202_ACCEPTED,
     response_model=JobAccepted,
     summary="Create a new grant-search job",
+    responses=openapi_error_responses(401, 422),
 )
 async def create_search(
     body: JobCreate,
     background: BackgroundTasks,
+    response: Response,
     api_key: ApiKey = Depends(require_api_key),
     repo: AirtableRepo = Depends(get_repo),
     settings: Settings = Depends(get_settings),
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> JobAccepted:
     # Short-circuit on a repeat: same partner + same Idempotency-Key returns
-    # the original job instead of creating a new one.
+    # the original job instead of creating a new one. We echo the replay via
+    # the ``Idempotency-Replayed`` header so partners can observe the cache
+    # hit without comparing timestamps.
     if idempotency_key:
         existing = repo.find_job_by_idempotency(api_key.record_id, idempotency_key)
         if existing is not None:
+            response.headers["Idempotency-Replayed"] = "true"
             return JobAccepted(
                 job_id=existing.job_id,
                 status=JobStatus(existing.status),
@@ -89,9 +95,10 @@ async def create_search(
     # because the search contract may evolve faster than the gateway. We only
     # require the body be a non-empty dict.
     if not isinstance(body.payload, dict) or not body.payload:
-        raise HTTPException(
+        raise APIError(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="payload must be a non-empty JSON object.",
+            code=ErrorCode.INVALID_REQUEST,
+            message="payload must be a non-empty JSON object.",
         )
 
     job_id = uuid4()
@@ -121,6 +128,7 @@ async def create_search(
     "/{job_id}",
     response_model=JobView,
     summary="Fetch the current state of a search job",
+    responses=openapi_error_responses(401, 404),
 )
 async def get_search(
     job_id: UUID,
@@ -129,19 +137,25 @@ async def get_search(
 ) -> JobView:
     job = repo.get_job(job_id)
     if job is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Job not found."
+        raise APIError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code=ErrorCode.JOB_NOT_FOUND,
+            message="Job not found.",
         )
     # Enforce that partners can only see their own jobs.
     if job.api_key_record_id != api_key.record_id:
         # Return 404 instead of 403 to avoid leaking job ID existence.
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Job not found."
+        raise APIError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code=ErrorCode.JOB_NOT_FOUND,
+            message="Job not found.",
         )
     if job.workflow_kind != WorkflowKind.SEARCH.value:
         # Wrong endpoint for this job kind — still 404 from the partner's view.
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Job not found."
+        raise APIError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code=ErrorCode.JOB_NOT_FOUND,
+            message="Job not found.",
         )
     return JobView(
         job_id=job.job_id,

@@ -18,9 +18,10 @@ import hmac
 import logging
 from typing import Annotated
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, status
 
 from app.config import Settings, get_settings
+from app.errors import APIError, ErrorCode
 from app.models.keys import ApiKey, KeyStatus
 from app.repositories.airtable import AirtableRepo
 
@@ -51,16 +52,18 @@ def _hash_key(plaintext: str) -> str:
 
 def _parse_bearer(authorization: str | None) -> str:
     if not authorization:
-        raise HTTPException(
+        raise APIError(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing Authorization header.",
+            code=ErrorCode.UNAUTHORIZED,
+            message="Missing Authorization header.",
             headers={"WWW-Authenticate": "Bearer"},
         )
     parts = authorization.split(None, 1)
     if len(parts) != 2 or parts[0].lower() != "bearer" or not parts[1].strip():
-        raise HTTPException(
+        raise APIError(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authorization header must be 'Bearer <api-key>'.",
+            code=ErrorCode.UNAUTHORIZED,
+            message="Authorization header must be 'Bearer <api-key>'.",
             headers={"WWW-Authenticate": "Bearer"},
         )
     return parts[1].strip()
@@ -76,18 +79,20 @@ async def require_api_key(
     record = repo.find_key_by_hash(key_hash)
     if record is None:
         logger.info("auth.reject reason=unknown_key prefix=%s", plaintext[:8])
-        raise HTTPException(
+        raise APIError(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid API key.",
+            code=ErrorCode.UNAUTHORIZED,
+            message="Invalid API key.",
             headers={"WWW-Authenticate": "Bearer"},
         )
     if record.status != KeyStatus.ACTIVE.value:
         logger.info(
             "auth.reject reason=revoked partner=%s", record.partner_name
         )
-        raise HTTPException(
+        raise APIError(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="API key is revoked.",
+            code=ErrorCode.UNAUTHORIZED,
+            message="API key is revoked.",
             headers={"WWW-Authenticate": "Bearer"},
         )
     # Best-effort update; never blocks the request
@@ -107,7 +112,8 @@ def require_internal_secret(
         x_internal_secret, settings.internal_shared_secret
     ):
         logger.warning("internal.reject reason=bad_secret")
-        raise HTTPException(
+        raise APIError(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid internal secret.",
+            code=ErrorCode.UNAUTHORIZED,
+            message="Invalid internal secret.",
         )

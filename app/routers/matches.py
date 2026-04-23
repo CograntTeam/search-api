@@ -16,8 +16,9 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 
+from app.errors import APIError, ErrorCode, openapi_error_responses
 from app.models.jobs import JobStatus, WorkflowKind
 from app.models.keys import ApiKey
 from app.models.matches import MatchesView, MatchView
@@ -97,6 +98,7 @@ def _row_to_match_view(rec: dict[str, Any]) -> MatchView:
     "/{job_id}/matches",
     response_model=MatchesView,
     summary="Fetch the full list of matches for a completed search job",
+    responses=openapi_error_responses(401, 404, 409),
 )
 async def get_search_matches(
     job_id: UUID,
@@ -105,37 +107,42 @@ async def get_search_matches(
 ) -> MatchesView:
     job = repo.get_job(job_id)
     if job is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Job not found."
+        raise APIError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code=ErrorCode.JOB_NOT_FOUND,
+            message="Job not found.",
         )
     # Partners only see their own jobs. 404 instead of 403 avoids leaking
     # existence of other partners' job IDs.
     if job.api_key_record_id != api_key.record_id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Job not found."
+        raise APIError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code=ErrorCode.JOB_NOT_FOUND,
+            message="Job not found.",
         )
     if job.workflow_kind != WorkflowKind.SEARCH.value:
         # Wrong endpoint for this job kind — still 404 from the partner's view.
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Job not found."
+        raise APIError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code=ErrorCode.JOB_NOT_FOUND,
+            message="Job not found.",
         )
 
     # Matches only exist once the run has finished. If we're still running,
     # tell the partner to keep polling status. If we failed, echo the error.
     if job.status == JobStatus.FAILED.value:
-        raise HTTPException(
+        raise APIError(
             status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "detail": "Job failed; no matches available.",
-                "status": job.status,
-                "error": job.error,
-            },
+            code=ErrorCode.JOB_FAILED,
+            message="Job failed; no matches available.",
+            details={"status": job.status, "job_error": job.error},
         )
     if job.status != JobStatus.DONE.value:
-        raise HTTPException(
+        raise APIError(
             status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "detail": "Job not yet complete.",
+            code=ErrorCode.JOB_NOT_READY,
+            message="Job not yet complete.",
+            details={
                 "status": job.status,
                 "hint": f"Poll GET /v1/searches/{job_id} until status=done.",
             },

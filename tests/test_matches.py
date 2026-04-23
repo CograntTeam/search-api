@@ -111,10 +111,10 @@ def test_matches_queued_returns_409(monkeypatch):
     )
     assert r2.status_code == 409
     body = r2.json()
-    # FastAPI wraps dict details inside {"detail": {...}}.
-    detail = body["detail"]
-    assert detail["status"] in {"queued", "running"}
-    assert "hint" in detail
+    assert body["error"]["code"] == "JOB_NOT_READY"
+    details = body["error"]["details"]
+    assert details["status"] in {"queued", "running"}
+    assert "hint" in details
 
 
 def test_matches_failed_returns_409_with_error():
@@ -128,7 +128,9 @@ def test_matches_failed_returns_409_with_error():
         headers={"Authorization": f"Bearer {PARTNER_KEY_PLAINTEXT}"},
     )
     assert r.status_code == 409
-    assert r.json()["detail"]["error"] == "n8n blew up"
+    body = r.json()
+    assert body["error"]["code"] == "JOB_FAILED"
+    assert body["error"]["details"]["job_error"] == "n8n blew up"
 
 
 # ---------------------------------------------------------------------------

@@ -12,9 +12,10 @@ from typing import Any
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, status
 from pydantic import BaseModel, Field
 
+from app.errors import APIError, ErrorCode
 from app.models.jobs import JobStatus
 from app.repositories.airtable import AirtableRepo
 from app.security import get_repo, require_internal_secret
@@ -69,8 +70,10 @@ async def complete_job(
 ) -> dict[str, str]:
     existing = repo.get_job(job_id)
     if existing is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Unknown job."
+        raise APIError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code=ErrorCode.JOB_NOT_FOUND,
+            message="Unknown job.",
         )
 
     # Idempotency: if the job already reached a terminal state, return the
@@ -84,16 +87,18 @@ async def complete_job(
         return {"status": existing.status, "idempotent": "true"}
 
     if body.result is None and body.error is None:
-        raise HTTPException(
+        raise APIError(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Provide either 'result' or 'error'.",
+            code=ErrorCode.INVALID_REQUEST,
+            message="Provide either 'result' or 'error'.",
         )
 
     updated = repo.complete_job(job_id, result=body.result, error=body.error)
     if updated is None:
-        raise HTTPException(
+        raise APIError(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to record completion.",
+            code=ErrorCode.INTERNAL_ERROR,
+            message="Failed to record completion.",
         )
 
     # Fire the partner callback if configured. Fire-and-forget after response.
