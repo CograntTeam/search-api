@@ -46,10 +46,36 @@ class JobCreate(BaseModel):
     we keep a loose `payload` dict here; each endpoint validates its own shape.
     """
 
-    payload: dict[str, Any]
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "payload": {
+                        "company_id": "recABCDEFGHIJKLMN",
+                    },
+                    "callback_url": "https://partner.example/webhooks/cogrant",
+                }
+            ]
+        }
+    )
+
+    payload: dict[str, Any] = Field(
+        ...,
+        description=(
+            "Workflow-specific input. For ``search`` jobs this is a JSON object "
+            "with at minimum ``company_id`` (an Airtable record ID from the "
+            "Companies table) identifying the client profile to search against. "
+            "Extra keys are forwarded to the underlying workflow as-is."
+        ),
+    )
     callback_url: str | None = Field(
         default=None,
-        description="Optional HTTPS URL to POST the final result to when done.",
+        description=(
+            "Optional HTTPS URL. If set, the gateway POSTs the completed job "
+            "body (same shape as ``GET /v1/searches/{job_id}``) once the run "
+            "finishes. Callbacks are fire-and-forget — partners should still "
+            "treat polling as the source of truth."
+        ),
     )
 
 

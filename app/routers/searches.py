@@ -20,12 +20,18 @@ from app.errors import APIError, ErrorCode, openapi_error_responses
 from app.models.jobs import JobAccepted, JobCreate, JobStatus, JobView, WorkflowKind
 from app.models.keys import ApiKey
 from app.repositories.airtable import AirtableRepo
-from app.security import get_repo, require_api_key
+from app.security import bearer_scheme, get_repo, require_api_key
 from app.services.n8n import N8nClient
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/v1/searches", tags=["searches"])
+router = APIRouter(
+    prefix="/v1/searches",
+    tags=["searches"],
+    # Advertise bearer auth in the OpenAPI schema so Swagger's "Authorize"
+    # button covers every route on this router at once.
+    dependencies=[Depends(bearer_scheme)],
+)
 
 
 # ---------------------------------------------------------------------------
@@ -67,7 +73,23 @@ async def _dispatch_search(
     status_code=status.HTTP_202_ACCEPTED,
     response_model=JobAccepted,
     summary="Create a new grant-search job",
-    responses=openapi_error_responses(401, 422),
+    description=(
+        "Kicks off an async grant search for the company specified in the "
+        "request payload. Returns 202 with a ``job_id`` immediately — the "
+        "search itself takes roughly 60–120 seconds.\n\n"
+        "**Idempotency.** Pass an ``Idempotency-Key`` header to make the "
+        "call safely retryable. A repeat with the same key returns the "
+        "original job and sets ``Idempotency-Replayed: true``.\n\n"
+        "**Example.**\n\n"
+        "```bash\n"
+        "curl -sS -X POST https://api.cogrant.eu/v1/searches \\\n"
+        "  -H 'Authorization: Bearer cog_live_...' \\\n"
+        "  -H 'Content-Type: application/json' \\\n"
+        "  -H 'Idempotency-Key: 2a8e4c-sprint42' \\\n"
+        "  -d '{\"payload\": {\"company_id\": \"recABCDEFGHIJKLMN\"}}'\n"
+        "```"
+    ),
+    responses=openapi_error_responses(401, 422, 429),
 )
 async def create_search(
     body: JobCreate,
@@ -128,7 +150,15 @@ async def create_search(
     "/{job_id}",
     response_model=JobView,
     summary="Fetch the current state of a search job",
-    responses=openapi_error_responses(401, 404),
+    description=(
+        "Polls the job. ``status`` transitions ``queued`` → ``running`` → "
+        "``done`` or ``failed``. The full result set lives under "
+        "``GET /v1/searches/{job_id}/matches`` — this endpoint stays "
+        "lightweight for frequent polling.\n\n"
+        "A reasonable polling cadence is every 5–10 seconds; searches "
+        "typically complete within 60–120 seconds."
+    ),
+    responses=openapi_error_responses(401, 404, 429),
 )
 async def get_search(
     job_id: UUID,

@@ -23,11 +23,15 @@ from app.models.jobs import JobStatus, WorkflowKind
 from app.models.keys import ApiKey
 from app.models.matches import MatchesView, MatchView
 from app.repositories.airtable import AirtableRepo
-from app.security import get_repo, require_api_key
+from app.security import bearer_scheme, get_repo, require_api_key
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/v1/searches", tags=["searches"])
+router = APIRouter(
+    prefix="/v1/searches",
+    tags=["searches"],
+    dependencies=[Depends(bearer_scheme)],
+)
 
 
 def _parse_json_field(value: Any) -> dict[str, Any]:
@@ -98,7 +102,15 @@ def _row_to_match_view(rec: dict[str, Any]) -> MatchView:
     "/{job_id}/matches",
     response_model=MatchesView,
     summary="Fetch the full list of matches for a completed search job",
-    responses=openapi_error_responses(401, 404, 409),
+    description=(
+        "Returns every match the search produced, each with the parsed "
+        "match analysis and the full grant-details JSON. Only callable "
+        "once the job reaches ``status=done`` — earlier polls return 409 "
+        "with a hint to keep polling the status endpoint.\n\n"
+        "Payloads are substantial (hundreds of KB for a rich search); "
+        "call this once per job rather than on a polling loop."
+    ),
+    responses=openapi_error_responses(401, 404, 409, 429),
 )
 async def get_search_matches(
     job_id: UUID,

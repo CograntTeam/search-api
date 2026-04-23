@@ -19,12 +19,26 @@ import logging
 from typing import Annotated
 
 from fastapi import Depends, Header, Request, status
+from fastapi.security import HTTPBearer
 
 from app.config import Settings, get_settings
 from app.errors import APIError, ErrorCode
 from app.models.keys import ApiKey, KeyStatus
 from app.ratelimit import InMemoryRateLimiter, get_limiter, windows_for
 from app.repositories.airtable import AirtableRepo
+
+# Registered solely for OpenAPI — the "Authorize" button in Swagger UI
+# depends on a security scheme existing. We still authenticate via our own
+# ``require_api_key`` dep (which reads the raw ``Authorization`` header),
+# so the actual verification path stays unchanged.
+bearer_scheme = HTTPBearer(
+    scheme_name="PartnerApiKey",
+    description=(
+        "Your partner API key, passed as ``Authorization: Bearer <key>``. "
+        "Contact Cogrant to issue or rotate."
+    ),
+    auto_error=False,
+)
 
 logger = logging.getLogger(__name__)
 
