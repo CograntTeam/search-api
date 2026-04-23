@@ -10,7 +10,7 @@ from app.config import get_settings
 from app.errors import install_exception_handlers
 from app.logging_config import configure_logging
 from app.middleware import AccessLogMiddleware, RequestIDMiddleware
-from app.routers import health, internal, matches, searches
+from app.routers import health, internal, landing, matches, searches
 
 # Public OpenAPI tags — order controls sidebar grouping in Swagger.
 _OPENAPI_TAGS = [
@@ -86,6 +86,7 @@ def create_app() -> FastAPI:
 
     install_exception_handlers(app)
 
+    app.include_router(landing.router)
     app.include_router(health.router)
     app.include_router(searches.router)
     app.include_router(matches.router)
