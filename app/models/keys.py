@@ -21,7 +21,12 @@ class ApiKey(BaseModel):
     key_hash: str
     key_prefix: str | None = None
     status: KeyStatus = KeyStatus.ACTIVE
-    rate_limit_per_min: int = 60
+    # Per-minute / per-day / per-week caps. ``None`` or <= 0 disables a
+    # window for this partner. Defaults are sane-for-MVP; individual rows
+    # override per partner.
+    rate_limit_per_min: int | None = 60
+    rate_limit_per_day: int | None = 500
+    rate_limit_per_week: int | None = 2_000
     contact_email: EmailStr | None = None
     created_at: datetime | None = None
     last_used_at: datetime | None = None

@@ -39,6 +39,8 @@ class FakeRepo:
             key_prefix="sk_test_",
             status=KeyStatus.ACTIVE,
             rate_limit_per_min=60,
+            rate_limit_per_day=500,
+            rate_limit_per_week=2000,
         )
 
     # --- keys ------------------------------------------------------------

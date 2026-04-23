@@ -18,11 +18,12 @@ import hmac
 import logging
 from typing import Annotated
 
-from fastapi import Depends, Header, status
+from fastapi import Depends, Header, Request, status
 
 from app.config import Settings, get_settings
 from app.errors import APIError, ErrorCode
 from app.models.keys import ApiKey, KeyStatus
+from app.ratelimit import InMemoryRateLimiter, get_limiter, windows_for
 from app.repositories.airtable import AirtableRepo
 
 logger = logging.getLogger(__name__)
@@ -70,10 +71,17 @@ def _parse_bearer(authorization: str | None) -> str:
 
 
 async def require_api_key(
+    request: Request,
     authorization: Annotated[str | None, Header()] = None,
     repo: AirtableRepo = Depends(get_repo),
+    limiter: InMemoryRateLimiter = Depends(get_limiter),
 ) -> ApiKey:
-    """FastAPI dependency enforcing a valid, active partner API key."""
+    """FastAPI dependency enforcing auth **and** rate limits.
+
+    We combine the two so every protected route gets both for free — and
+    so the 429 response always carries the same ``request_id`` / envelope
+    shape as every other error on the gateway.
+    """
     plaintext = _parse_bearer(authorization)
     key_hash = _hash_key(plaintext)
     record = repo.find_key_by_hash(key_hash)
@@ -95,6 +103,60 @@ async def require_api_key(
             message="API key is revoked.",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    # Enforce multi-window rate limits. We hash-lookup auth first so
+    # unauthenticated traffic never consumes a partner's quota.
+    windows = windows_for(
+        per_min=record.rate_limit_per_min,
+        per_day=record.rate_limit_per_day,
+        per_week=record.rate_limit_per_week,
+    )
+    decision = limiter.check(record.record_id, windows)
+    if not decision.allowed and decision.tripped is not None:
+        retry_after = max(1, int(decision.tripped.reset_in_seconds) + 1)
+        logger.info(
+            "ratelimit.block partner=%s window=%s limit=%s retry_after=%s",
+            record.partner_name,
+            decision.tripped.name,
+            decision.tripped.limit,
+            retry_after,
+        )
+        raise APIError(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            code=ErrorCode.RATE_LIMITED,
+            message=(
+                f"Rate limit exceeded for the '{decision.tripped.name}' window."
+            ),
+            details={
+                "window": decision.tripped.name,
+                "limit": decision.tripped.limit,
+                "retry_after_seconds": retry_after,
+                "windows": [
+                    {
+                        "name": w.name,
+                        "limit": w.limit,
+                        "remaining": w.remaining,
+                    }
+                    for w in decision.windows
+                ],
+            },
+            headers={
+                "Retry-After": str(retry_after),
+                "X-RateLimit-Limit": str(decision.tripped.limit),
+                "X-RateLimit-Remaining": "0",
+                "X-RateLimit-Window": decision.tripped.name,
+                "X-RateLimit-Reset": str(retry_after),
+            },
+        )
+
+    # Stash the bottleneck window on request.state so the access-log
+    # middleware can decorate the eventual response with ``X-RateLimit-*``
+    # headers. Doing it this way — instead of via the injected Response —
+    # ensures the headers appear on exception-handler JSONResponses too.
+    tightest = decision.tightest
+    if tightest is not None:
+        request.state.rl_tightest = tightest
+
     # Best-effort update; never blocks the request
     repo.touch_key_last_used(record.record_id)
     return record

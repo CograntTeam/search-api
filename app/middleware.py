@@ -65,10 +65,18 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
 
 
 class AccessLogMiddleware(BaseHTTPMiddleware):
-    """One structured log line per request.
+    """One structured log line per request + rate-limit header decoration.
 
-    Skips ``/health`` to keep the log stream readable under constant polling
-    from Render + uptime monitors.
+    Skips ``/health`` for logging to keep the log stream readable under
+    constant polling from Render + uptime monitors.
+
+    On every request (including error responses from the exception
+    handlers), this middleware reads any :class:`~app.ratelimit.WindowState`
+    that :func:`~app.security.require_api_key` stashed on
+    ``request.state.rl_tightest`` and surfaces it as ``X-RateLimit-*``
+    headers. Doing it here — rather than via the injected ``Response``
+    object in the dependency — is the only reliable way to get the headers
+    onto the ``JSONResponse`` built by our exception handlers.
     """
 
     def __init__(self, app: ASGIApp, *, skip_paths: set[str] | None = None) -> None:
@@ -91,6 +99,18 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
                 duration_ms,
             )
             raise
+
+        # Decorate with rate-limit headers if the auth dep set one.
+        tightest = getattr(request.state, "rl_tightest", None)
+        if tightest is not None and "x-ratelimit-limit" not in {
+            h.lower() for h in response.headers
+        }:
+            response.headers["X-RateLimit-Limit"] = str(tightest.limit)
+            response.headers["X-RateLimit-Remaining"] = str(
+                max(0, tightest.remaining)
+            )
+            response.headers["X-RateLimit-Window"] = tightest.name
+
         if request.url.path in self.skip_paths:
             return response
         duration_ms = int((time.perf_counter() - start) * 1000)
