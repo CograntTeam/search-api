@@ -21,7 +21,12 @@ from app.models.jobs import JobAccepted, JobCreate, JobStatus, JobView, Workflow
 from app.models.keys import ApiKey
 from app.models.searches import DEFAULT_ORGANISATION_TYPE, SearchPayload
 from app.repositories.airtable import AirtableRepo
-from app.security import bearer_scheme, get_repo, require_api_key
+from app.security import (
+    bearer_scheme,
+    enforce_search_creation_limit,
+    get_repo,
+    require_api_key,
+)
 from app.services.n8n import N8nClient
 
 logger = logging.getLogger(__name__)
@@ -123,7 +128,10 @@ async def create_search(
     body: JobCreate,
     background: BackgroundTasks,
     response: Response,
-    api_key: ApiKey = Depends(require_api_key),
+    # ``enforce_search_creation_limit`` depends on ``require_api_key``
+    # and returns the same ApiKey, so this single dep gives us both auth
+    # and the search-specific rate limit.
+    api_key: ApiKey = Depends(enforce_search_creation_limit),
     repo: AirtableRepo = Depends(get_repo),
     settings: Settings = Depends(get_settings),
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,

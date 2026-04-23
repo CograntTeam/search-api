@@ -225,6 +225,14 @@ _LANDING_HTML = """<!doctype html>
         the <code>Retry-After</code> header tells you how long until the
         tripped window frees up.
       </p>
+      <p>
+        There are <strong>two bucket families</strong>: a general cap on all
+        authenticated calls (<code>minute</code> / <code>day</code> /
+        <code>week</code>) and a stricter cap on
+        <code>POST /v1/searches</code> alone (<code>searches_day</code> /
+        <code>searches_week</code>). Polling status and fetching matches
+        hit only the general buckets &mdash; feel free to poll freely.
+      </p>
     </section>
 
     <section>

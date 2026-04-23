@@ -56,7 +56,7 @@ def windows_for(
     per_day: int | None,
     per_week: int | None,
 ) -> list[Window]:
-    """Build the list of active windows for a partner.
+    """Build the list of general (all-routes) windows for a partner.
 
     ``None`` or a non-positive value in any slot disables enforcement for
     that window — we still accept the traffic, just don't count against
@@ -70,6 +70,26 @@ def windows_for(
         rules.append(Window("day", SECONDS_PER_DAY, int(per_day)))
     if per_week and per_week > 0:
         rules.append(Window("week", SECONDS_PER_WEEK, int(per_week)))
+    return rules
+
+
+def windows_for_searches(
+    *,
+    per_day: int | None,
+    per_week: int | None,
+) -> list[Window]:
+    """Build the search-creation-specific windows for a partner.
+
+    Applied **only** to ``POST /v1/searches``; polling status and fetching
+    matches continue to hit the general buckets above. Window names are
+    prefixed ``searches_`` so the 429 response + ``X-RateLimit-Window``
+    header clearly distinguish the two bucket families.
+    """
+    rules: list[Window] = []
+    if per_day and per_day > 0:
+        rules.append(Window("searches_day", SECONDS_PER_DAY, int(per_day)))
+    if per_week and per_week > 0:
+        rules.append(Window("searches_week", SECONDS_PER_WEEK, int(per_week)))
     return rules
 
 

@@ -41,6 +41,8 @@ class FakeRepo:
             rate_limit_per_min=60,
             rate_limit_per_day=500,
             rate_limit_per_week=2000,
+            searches_per_day=50,
+            searches_per_week=200,
         )
 
     # --- keys ------------------------------------------------------------

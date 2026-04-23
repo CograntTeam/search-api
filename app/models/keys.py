@@ -21,12 +21,17 @@ class ApiKey(BaseModel):
     key_hash: str
     key_prefix: str | None = None
     status: KeyStatus = KeyStatus.ACTIVE
-    # Per-minute / per-day / per-week caps. ``None`` or <= 0 disables a
-    # window for this partner. Defaults are sane-for-MVP; individual rows
-    # override per partner.
+    # Per-minute / per-day / per-week caps on *all* authenticated calls.
+    # ``None`` or <= 0 disables a window for this partner.
     rate_limit_per_min: int | None = 60
     rate_limit_per_day: int | None = 500
     rate_limit_per_week: int | None = 2_000
+    # Separate day / week caps specifically for ``POST /v1/searches``
+    # (search *creation*). Polling status and fetching matches don't
+    # count against these — they hit the general buckets above instead.
+    # ``None`` or <= 0 disables that search-specific window.
+    searches_per_day: int | None = None
+    searches_per_week: int | None = None
     contact_email: EmailStr | None = None
     created_at: datetime | None = None
     last_used_at: datetime | None = None

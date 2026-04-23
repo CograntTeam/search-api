@@ -24,7 +24,12 @@ from fastapi.security import HTTPBearer
 from app.config import Settings, get_settings
 from app.errors import APIError, ErrorCode
 from app.models.keys import ApiKey, KeyStatus
-from app.ratelimit import InMemoryRateLimiter, get_limiter, windows_for
+from app.ratelimit import (
+    InMemoryRateLimiter,
+    get_limiter,
+    windows_for,
+    windows_for_searches,
+)
 from app.repositories.airtable import AirtableRepo
 
 # Registered solely for OpenAPI — the "Authorize" button in Swagger UI
@@ -193,3 +198,83 @@ def require_internal_secret(
             code=ErrorCode.UNAUTHORIZED,
             message="Invalid internal secret.",
         )
+
+
+# ---------------------------------------------------------------------------
+# Search-creation-specific rate limit
+# ---------------------------------------------------------------------------
+def enforce_search_creation_limit(
+    request: Request,
+    api_key: Annotated[ApiKey, Depends(require_api_key)],
+    limiter: Annotated[InMemoryRateLimiter, Depends(get_limiter)],
+) -> ApiKey:
+    """Enforce the ``searches_per_day`` / ``searches_per_week`` caps.
+
+    Lives in its own bucket keyed ``<record_id>:searches`` so it does
+    NOT interfere with the general all-routes windows enforced by
+    :func:`require_api_key`. Called only from
+    ``POST /v1/searches``. Polling status and fetching matches skip this
+    check entirely.
+
+    If the search bucket is the tightest on the happy path, it replaces
+    whatever window the general limiter stashed — so ``X-RateLimit-*``
+    headers always point at the bottleneck the partner should actually
+    care about.
+    """
+    search_windows = windows_for_searches(
+        per_day=api_key.searches_per_day,
+        per_week=api_key.searches_per_week,
+    )
+    if not search_windows:
+        return api_key
+
+    decision = limiter.check(f"{api_key.record_id}:searches", search_windows)
+    if not decision.allowed and decision.tripped is not None:
+        retry_after = max(1, int(decision.tripped.reset_in_seconds) + 1)
+        logger.info(
+            "ratelimit.block partner=%s bucket=searches window=%s limit=%s retry_after=%s",
+            api_key.partner_name,
+            decision.tripped.name,
+            decision.tripped.limit,
+            retry_after,
+        )
+        raise APIError(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            code=ErrorCode.RATE_LIMITED,
+            message=(
+                f"Search creation rate limit exceeded for the "
+                f"'{decision.tripped.name}' window."
+            ),
+            details={
+                "bucket": "searches",
+                "window": decision.tripped.name,
+                "limit": decision.tripped.limit,
+                "retry_after_seconds": retry_after,
+                "windows": [
+                    {
+                        "name": w.name,
+                        "limit": w.limit,
+                        "remaining": w.remaining,
+                    }
+                    for w in decision.windows
+                ],
+            },
+            headers={
+                "Retry-After": str(retry_after),
+                "X-RateLimit-Limit": str(decision.tripped.limit),
+                "X-RateLimit-Remaining": "0",
+                "X-RateLimit-Window": decision.tripped.name,
+                "X-RateLimit-Reset": str(retry_after),
+            },
+        )
+
+    # Happy-path headers: prefer the search-bucket bottleneck when it is
+    # tighter than whatever the general limiter stashed. Headers are set
+    # via the access-log middleware reading ``request.state.rl_tightest``.
+    tightest = decision.tightest
+    if tightest is not None:
+        current = getattr(request.state, "rl_tightest", None)
+        if current is None or tightest.remaining < current.remaining:
+            request.state.rl_tightest = tightest
+
+    return api_key

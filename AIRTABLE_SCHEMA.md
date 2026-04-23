@@ -24,6 +24,8 @@ partners once at creation time and never persisted.
 | rate_limit_per_min | `fldIBHQPAHSxKEpGO` | number | Default 60. Blank/0 → no cap on this window. |
 | rate_limit_per_day | `fldUZmK5uTM1ax4li` | number | Default 500. Blank/0 → no cap on this window. |
 | rate_limit_per_week | `fldNyJUVETt4Srgl7` | number | Default 2000. Blank/0 → no cap on this window. |
+| searches_per_day | `fldg4DXaObURXNpgv` | number | Cap on `POST /v1/searches` calls per 24h. Independent of `rate_limit_per_day`. Blank/0 → no cap. |
+| searches_per_week | `fldjxlahVIlrLbTOk` | number | Cap on `POST /v1/searches` calls per 7d. Independent of `rate_limit_per_week`. Blank/0 → no cap. |
 | contact_email | `fldTOLCO1VzAdkWwL` | email | Technical contact at partner |
 | notes | `fldpV2Q3PI9nCpmai` | multilineText | Internal notes |
 | created_at | `fldol6T0GIwjxyDmq` | dateTime (ISO/24h/utc) | |

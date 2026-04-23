@@ -54,16 +54,27 @@ Known codes: `UNAUTHORIZED`, `FORBIDDEN`, `JOB_NOT_FOUND`, `JOB_NOT_READY`,
 
 ## Rate limiting
 
-Three sliding windows per partner: minute / day / week. Configured on
-the `api_keys` Airtable row via `rate_limit_per_min`, `rate_limit_per_day`,
-`rate_limit_per_week`. Blank or 0 disables that window.
+**Two bucket families:**
+
+*General* — applied to every authenticated route (POST, poll GET,
+matches GET). Configured on the `api_keys` row via `rate_limit_per_min`,
+`rate_limit_per_day`, `rate_limit_per_week`.
+
+*Search-creation* — applied only to `POST /v1/searches`. Configured via
+`searches_per_day` and `searches_per_week`. Polling and matches-fetch
+do **not** count against these. Keep the search caps tight (the
+expensive work lives there) while leaving the general caps generous
+enough for unlimited polling.
+
+Blank or 0 disables any individual window.
 
 When any window trips the response is 429 with:
 
 - Header `Retry-After: <seconds>`
-- Header `X-RateLimit-Window: <minute|day|week>`
+- Header `X-RateLimit-Window: <minute|day|week|searches_day|searches_week>`
 - Header `X-RateLimit-Limit: <int>`, `X-RateLimit-Remaining: 0`, `X-RateLimit-Reset: <seconds>`
-- `error.details.windows` listing remaining budget on all three
+- `error.details.bucket`: `"general"` (implicit/omitted) or `"searches"`
+- `error.details.windows` listing remaining budget on every window in that bucket
 
 On the happy path, every auth'd response carries `X-RateLimit-*` headers
 showing the bottleneck window. Partners can use those to pace requests.

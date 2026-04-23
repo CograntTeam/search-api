@@ -219,6 +219,88 @@ def test_happy_path_carries_rate_limit_headers(_restore_key):
     assert r.headers.get("x-ratelimit-window") == "minute"
 
 
+def test_search_creation_bucket_trips_independently(_restore_key, monkeypatch):
+    """A tight ``searches_per_day`` cap blocks POST /v1/searches but leaves
+    polling + matches untouched (they hit the general bucket only)."""
+    FAKE_REPO.key = ApiKey(
+        record_id=PARTNER_RECORD_ID,
+        partner_name="Search Limit Partner",
+        key_hash=PARTNER_KEY_HASH,
+        key_prefix="sk_test_",
+        status=KeyStatus.ACTIVE,
+        rate_limit_per_min=60,  # plenty of general headroom
+        rate_limit_per_day=1_000,
+        rate_limit_per_week=10_000,
+        searches_per_day=2,     # tight search-specific cap
+        searches_per_week=None,
+    )
+
+    async def fake_fire(self, *, job_id, payload):  # noqa: ANN001
+        return "exec_search_lim"
+
+    monkeypatch.setattr("app.services.n8n.N8nClient.fire_search", fake_fire)
+
+    headers = {"Authorization": f"Bearer {PARTNER_KEY_PLAINTEXT}"}
+    body = {"payload": {"company_id": "recSOME"}}
+
+    # First two POSTs allowed; third trips the search bucket.
+    r1 = client.post("/v1/searches", json=body, headers=headers)
+    r2 = client.post("/v1/searches", json=body, headers=headers)
+    r3 = client.post("/v1/searches", json=body, headers=headers)
+    assert r1.status_code == 202, r1.text
+    assert r2.status_code == 202, r2.text
+    assert r3.status_code == 429, r3.text
+
+    err = r3.json()["error"]
+    assert err["code"] == "RATE_LIMITED"
+    assert err["details"]["bucket"] == "searches"
+    assert err["details"]["window"] == "searches_day"
+    assert err["details"]["limit"] == 2
+    assert r3.headers["x-ratelimit-window"] == "searches_day"
+
+    # Polling the existing jobs must still succeed — general bucket has
+    # plenty of headroom and the search bucket doesn't apply to GETs.
+    job_id = r1.json()["job_id"]
+    r4 = client.get(f"/v1/searches/{job_id}", headers=headers)
+    assert r4.status_code == 200, r4.text
+
+
+def test_search_bucket_ignored_on_polling(_restore_key, monkeypatch):
+    """Even with ``searches_per_day=1`` exhausted, repeated GETs succeed."""
+    FAKE_REPO.key = ApiKey(
+        record_id=PARTNER_RECORD_ID,
+        partner_name="Poll Heavy Partner",
+        key_hash=PARTNER_KEY_HASH,
+        key_prefix="sk_test_",
+        status=KeyStatus.ACTIVE,
+        rate_limit_per_min=60,
+        rate_limit_per_day=None,
+        rate_limit_per_week=None,
+        searches_per_day=1,
+        searches_per_week=None,
+    )
+
+    async def fake_fire(self, *, job_id, payload):  # noqa: ANN001
+        return "exec_poll_heavy"
+
+    monkeypatch.setattr("app.services.n8n.N8nClient.fire_search", fake_fire)
+
+    headers = {"Authorization": f"Bearer {PARTNER_KEY_PLAINTEXT}"}
+    r = client.post(
+        "/v1/searches",
+        json={"payload": {"company_id": "recX"}},
+        headers=headers,
+    )
+    assert r.status_code == 202
+    job_id = r.json()["job_id"]
+
+    # 20 polls — all of them must pass since polling doesn't consume
+    # the search-creation bucket.
+    for _ in range(20):
+        rp = client.get(f"/v1/searches/{job_id}", headers=headers)
+        assert rp.status_code == 200, rp.text
+
+
 def test_unlimited_key_never_trips(_restore_key):
     # per_min=None / 0 should mean "no cap" — the limiter returns no windows
     # so the happy-path headers should also be absent (no bottleneck to report).

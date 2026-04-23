@@ -165,6 +165,8 @@ class AirtableRepo:
             rate_limit_per_min=_optional_int(f.get("rate_limit_per_min")) or 60,
             rate_limit_per_day=_optional_int(f.get("rate_limit_per_day")),
             rate_limit_per_week=_optional_int(f.get("rate_limit_per_week")),
+            searches_per_day=_optional_int(f.get("searches_per_day")),
+            searches_per_week=_optional_int(f.get("searches_per_week")),
             contact_email=f.get("contact_email"),
             created_at=f.get("created_at"),
             last_used_at=f.get("last_used_at"),
