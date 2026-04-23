@@ -75,7 +75,7 @@ def test_error_envelope_on_422_empty_payload():
 # ---------------------------------------------------------------------------
 def test_response_carries_request_id_header():
     r = client.get("/health")
-    assert "x-request-id" in {h.lower() for h in r.headers.keys()}
+    assert "x-request-id" in {h.lower() for h in r.headers}
     assert r.headers["x-request-id"].startswith("req_")
 
 
