@@ -22,8 +22,8 @@ partners once at creation time and never persisted.
 | key_prefix | `fldAJi4AMZDTscaE5` | singleLineText | First 8 chars of plaintext key (debug/ID only) |
 | status | `fldD1cAYMgEOSFA6Q` | singleSelect | `active` / `revoked` |
 | rate_limit_per_min | `fldIBHQPAHSxKEpGO` | number | Default 60. Blank/0 → no cap on this window. |
-| rate_limit_per_day | *add me* | number | Default 500. Blank/0 → no cap on this window. |
-| rate_limit_per_week | *add me* | number | Default 2000. Blank/0 → no cap on this window. |
+| rate_limit_per_day | `fldUZmK5uTM1ax4li` | number | Default 500. Blank/0 → no cap on this window. |
+| rate_limit_per_week | `fldNyJUVETt4Srgl7` | number | Default 2000. Blank/0 → no cap on this window. |
 | contact_email | `fldTOLCO1VzAdkWwL` | email | Technical contact at partner |
 | notes | `fldpV2Q3PI9nCpmai` | multilineText | Internal notes |
 | created_at | `fldol6T0GIwjxyDmq` | dateTime (ISO/24h/utc) | |
