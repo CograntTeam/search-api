@@ -172,6 +172,29 @@ _LANDING_HTML = """<!doctype html>
       </p>
 <pre>curl -sS https://api.cogrant.eu/v1/searches/{job_id}/matches \\
   -H 'Authorization: Bearer cog_live_...'</pre>
+      <p style="margin-top:14px">
+        Each row carries two nested objects:
+      </p>
+      <ul>
+        <li>
+          <code>match</code> &mdash; analyst-style decision block (eligibility
+          verdict, objective / activity / budget fit, clarification questions,
+          consortium expectations).
+        </li>
+        <li>
+          <code>grant</code> &mdash; structured grant metadata
+          (<code>core_metadata</code>, <code>timelines</code>,
+          <code>financials</code>, <code>eligibility_and_consortia</code>,
+          <code>scope_and_activities</code>, <code>scope_batches</code>,
+          <code>administrative</code>).
+        </li>
+      </ul>
+      <p style="margin-top:10px">
+        Every individual field is documented in the
+        <a href="/docs#/searches/get_search_matches_v1_searches__job_id__matches_get">Swagger reference</a>
+        &mdash; expand <code>MatchDetails</code> and <code>GrantDetails</code>
+        in the schemas panel for the full list with per-field meaning.
+      </p>
     </section>
 
     <section>

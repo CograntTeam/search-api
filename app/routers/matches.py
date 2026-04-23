@@ -101,6 +101,10 @@ def _row_to_match_view(rec: dict[str, Any]) -> MatchView:
 @router.get(
     "/{job_id}/matches",
     response_model=MatchesView,
+    # Preserve the Title Case keys on ``match`` when serialising — the
+    # Pydantic attribute names are snake_case but partners expect the
+    # aliases on the wire (see :mod:`app.models.match_details`).
+    response_model_by_alias=True,
     summary="Fetch the full list of matches for a completed search job",
     description=(
         "Returns every match the search produced, each with the parsed "
