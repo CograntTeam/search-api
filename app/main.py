@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from app import __version__
 from app.config import get_settings
 from app.logging_config import configure_logging
-from app.routers import health, internal, searches
+from app.routers import health, internal, match_checks, searches
 
 
 @asynccontextmanager
@@ -38,6 +38,7 @@ def create_app() -> FastAPI:
 
     app.include_router(health.router)
     app.include_router(searches.router)
+    app.include_router(match_checks.router)
     app.include_router(internal.router)
 
     return app
