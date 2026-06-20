@@ -110,6 +110,15 @@ class JobView(BaseModel):
     job_id: UUID
     status: JobStatus
     workflow_kind: WorkflowKind
+    company_id: str | None = Field(
+        default=None,
+        description=(
+            "Airtable record ID of the company this search ran against. For "
+            "new-company requests this is the row the gateway created on the "
+            "fly, so partners can capture it here; for existing-company "
+            "requests it echoes the ``company_id`` that was submitted."
+        ),
+    )
     result: dict[str, Any] | None = None
     error: str | None = None
     created_at: datetime | None = None

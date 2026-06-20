@@ -107,6 +107,9 @@ async def complete_job(
             "job_id": str(job_id),
             "status": updated.status,
             "workflow_kind": updated.workflow_kind,
+            # Mirror GET /v1/searches/{job_id}: surface the resolved company_id
+            # so callback consumers see the same shape pollers do.
+            "company_id": updated.request_payload.get("company_id"),
             "result": updated.result,
             "error": updated.error,
         }

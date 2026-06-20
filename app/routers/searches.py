@@ -285,6 +285,10 @@ async def get_search(
         job_id=job.job_id,
         status=JobStatus(job.status),
         workflow_kind=WorkflowKind(job.workflow_kind),
+        # The resolved company_id is stored on the forwarded request_payload
+        # for every search job — the freshly-created row for new-company
+        # requests, or the submitted id for existing-company ones.
+        company_id=job.request_payload.get("company_id"),
         result=job.result,
         error=job.error,
         created_at=job.created_at,

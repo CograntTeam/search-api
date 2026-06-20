@@ -10,6 +10,13 @@ the first stable contract will be cut as `1.0.0`.
 
 ## [Unreleased]
 
+### Added
+- **`company_id` on job views.** `GET /v1/searches/{job_id}` now returns the
+  resolved `company_id` the search ran against. For new-company requests this
+  is the Companies row the gateway created on the fly, so partners can capture
+  the new record ID; for existing-company requests it echoes the submitted
+  `company_id`. The partner callback body carries the same field.
+
 ## [0.1.0] — 2026-04-23
 
 First partner-ready revision. The API surface is now usable end-to-end by

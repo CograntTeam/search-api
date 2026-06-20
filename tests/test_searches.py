@@ -375,6 +375,40 @@ def test_get_search_returns_job(monkeypatch):
     assert body["job_id"] == job_id
     assert body["workflow_kind"] == "search"
     assert body["status"] in {"queued", "running", "done", "failed"}
+    # Existing-company request: the GET echoes back the submitted company_id.
+    assert body["company_id"] == "recABCDEFGHIJKLMN"
+
+
+def test_get_search_surfaces_created_company_id(monkeypatch):
+    """New-company request: GET exposes the company_id the gateway created
+    on the fly, so partners can capture the new record."""
+
+    async def fake_fire(self, *, job_id, payload):  # noqa: ANN001
+        return "exec_newco_get"
+
+    monkeypatch.setattr("app.services.n8n.N8nClient.fire_search", fake_fire)
+
+    r = client.post(
+        "/v1/searches",
+        json={
+            "payload": {
+                "company_name": "Get Co",
+                "company_description": "Created on the fly.",
+                "country": "Germany",
+            }
+        },
+        headers={"Authorization": f"Bearer {PARTNER_KEY_PLAINTEXT}"},
+    )
+    assert r.status_code == 202, r.text
+    job_id = r.json()["job_id"]
+    created_id = FAKE_REPO.created_companies[-1]["id"]
+
+    r2 = client.get(
+        f"/v1/searches/{job_id}",
+        headers={"Authorization": f"Bearer {PARTNER_KEY_PLAINTEXT}"},
+    )
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["company_id"] == created_id
 
 
 # ---------------------------------------------------------------------------
