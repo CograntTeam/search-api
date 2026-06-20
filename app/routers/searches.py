@@ -19,7 +19,11 @@ from app.config import Settings, get_settings
 from app.errors import APIError, ErrorCode, openapi_error_responses
 from app.models.jobs import JobAccepted, JobCreate, JobStatus, JobView, WorkflowKind
 from app.models.keys import ApiKey
-from app.models.searches import DEFAULT_ORGANISATION_TYPE, SearchPayload
+from app.models.searches import (
+    DEFAULT_LEAD_SOURCE,
+    DEFAULT_ORGANISATION_TYPE,
+    SearchPayload,
+)
 from app.repositories.airtable import AirtableRepo
 from app.security import (
     bearer_scheme,
@@ -181,6 +185,7 @@ async def create_search(
                 country=new_fields.country,
                 website=new_fields.website,
                 organisation_type=DEFAULT_ORGANISATION_TYPE,
+                lead_source=DEFAULT_LEAD_SOURCE,
             )
         except Exception as exc:  # noqa: BLE001
             logger.exception(

@@ -55,7 +55,7 @@ Async job records. One row per partner API request.
 
 Partner-facing company profiles. The gateway writes into this table when a
 partner creates a new company inline with a search via the new-company
-branch of `POST /v1/searches`. Only these five fields are touched — the
+branch of `POST /v1/searches`. Only these six fields are touched — the
 rest are owned by the CRM / sales team.
 
 | Field | ID | Type | Notes |
@@ -65,6 +65,7 @@ rest are owned by the CRM / sales team.
 | Country | `fldkplI5JzXUkw6V0` | singleSelect | From `country` — must match an existing option |
 | Company website | `fldiX92NcEy8JiOLo` | url | Optional, from `website` |
 | Organisation type | `fldYLkD9P3nBcJbXH` | singleSelect | Always set to `Private Business` by the gateway |
+| Lead source | `fldcgpMLIduhp4QBO` | singleSelect | Always set to `Search API` by the gateway |
 
 ## Suggested `.env` entries
 

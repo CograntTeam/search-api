@@ -16,6 +16,9 @@ the first stable contract will be cut as `1.0.0`.
   is the Companies row the gateway created on the fly, so partners can capture
   the new record ID; for existing-company requests it echoes the submitted
   `company_id`. The partner callback body carries the same field.
+- **Lead-source tagging.** Companies created inline via the new-company branch
+  of `POST /v1/searches` are now stamped with `Lead source = "Search API"` so
+  sales can distinguish self-serve API signups from other inbound leads.
 
 ## [0.1.0] — 2026-04-23
 

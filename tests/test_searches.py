@@ -121,6 +121,7 @@ class FakeRepo:
         country: str,
         website: str | None = None,
         organisation_type: str = "Private Business",
+        lead_source: str = "Search API",
     ) -> str:
         new_id = f"recCOMPANY{len(self.created_companies):06d}"
         self.created_companies.append(
@@ -131,6 +132,7 @@ class FakeRepo:
                 "country": country,
                 "website": website,
                 "organisation_type": organisation_type,
+                "lead_source": lead_source,
             }
         )
         return new_id
@@ -258,6 +260,8 @@ def test_create_search_with_new_company(monkeypatch):
     assert created["country"] == "Lithuania"
     assert created["website"] == "https://acme.bio"
     assert created["organisation_type"] == "Private Business"
+    # Provenance tag so sales can spot self-serve API signups.
+    assert created["lead_source"] == "Search API"
 
     # n8n receives the fresh record ID, not the raw name fields.
     assert captured["payload"]["company_id"] == created["id"]

@@ -80,6 +80,7 @@ class AirtableRepo:
     _COMPANIES_COUNTRY = "fldkplI5JzXUkw6V0"
     _COMPANIES_WEBSITE = "fldiX92NcEy8JiOLo"
     _COMPANIES_ORG_TYPE = "fldYLkD9P3nBcJbXH"
+    _COMPANIES_LEAD_SOURCE = "fldcgpMLIduhp4QBO"
 
     def create_company(
         self,
@@ -89,25 +90,30 @@ class AirtableRepo:
         country: str,
         website: str | None = None,
         organisation_type: str = "Private Business",
+        lead_source: str = "Search API",
     ) -> str:
         """Create a Companies row and return its record ID.
 
         Partner-supplied fields are passed through. ``organisation_type``
         defaults to ``"Private Business"`` because the self-serve API is
         scoped to that category; other types are onboarded manually.
+        ``lead_source`` defaults to ``"Search API"`` so sales can tell these
+        self-serve rows apart from other inbound leads.
 
         Raises :class:`pyairtable.api.types.PyAirtableError` (or plain
         ``requests`` errors) on Airtable failures — let them bubble up to
         the router so we emit a 5xx envelope. We pass ``typecast=True``
-        so the ``Country`` and ``Organisation type`` singleSelect fields
-        accept partner-supplied string values; Airtable will 422 if the
+        so the ``Country``, ``Organisation type`` and ``Lead source``
+        singleSelect fields accept string values; Airtable will 422 if the
         string isn't a known option, which we translate to 422 upstream.
+        ``Lead source`` is gateway-controlled, so its option already exists.
         """
         fields: dict[str, Any] = {
             self._COMPANIES_NAME: name,
             self._COMPANIES_DESCRIPTION: description,
             self._COMPANIES_COUNTRY: country,
             self._COMPANIES_ORG_TYPE: organisation_type,
+            self._COMPANIES_LEAD_SOURCE: lead_source,
         }
         if website:
             fields[self._COMPANIES_WEBSITE] = website

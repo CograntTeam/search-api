@@ -30,6 +30,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 # the self-serve API.
 DEFAULT_ORGANISATION_TYPE = "Private Business"
 
+# Stamped onto Companies['Lead source'] for every row the gateway creates,
+# so sales can tell self-serve Search-API signups apart from other inbound
+# leads. The matching singleSelect option must already exist on the table.
+DEFAULT_LEAD_SOURCE = "Search API"
+
 
 class NewCompanyFields(BaseModel):
     """The subset of Companies fields a partner may set when creating a
