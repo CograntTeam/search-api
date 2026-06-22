@@ -31,7 +31,29 @@ services:
         value: tblLPLC7MfX7nuxyr
       - key: AIRTABLE_COMPANIES_TABLE_ID
         value: tblelf4Z6wnpDKr5K
+      - key: AIRTABLE_GRANTS_TABLE_ID
+        value: tblnRV4RxCOv7X5u6
       - key: N8N_WEBHOOK_BASE_URL
         sync: false
       - key: INTERNAL_SHARED_SECRET
         generateValue: true
+      # --- Reverse search + daily notifications ---
+      - key: SCHEDULER_ENABLED
+        value: "true"
+      - key: SCHEDULER_TIMEZONE
+        value: Europe/Vilnius
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        value: info@cogrant.eu
+      - key: EMAIL_REPLY_TO
+        value: info@cogrant.eu
+      - key: EMAIL_BCC
+        value: info@cogrant.eu
+      # Google Workspace SMTP app password for info@cogrant.eu
+      - key: SMTP_USERNAME
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false

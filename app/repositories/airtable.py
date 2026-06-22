@@ -46,6 +46,11 @@ def _loads(v: str | None) -> dict[str, Any] | None:
         return {"_raw": v}
 
 
+def _chunks(items: list[str], size: int) -> list[list[str]]:
+    """Split a list of record IDs into batches for OR(RECORD_ID()=...) queries."""
+    return [items[i : i + size] for i in range(0, len(items), size)]
+
+
 class AirtableRepo:
     """Single entry point for all Airtable reads/writes in the gateway."""
 
@@ -67,6 +72,10 @@ class AirtableRepo:
         self._companies = self._api.table(
             self.settings.airtable_base_id,
             self.settings.airtable_companies_table_id,
+        )
+        self._grants = self._api.table(
+            self.settings.airtable_base_id,
+            self.settings.airtable_grants_table_id,
         )
 
     # ------------------------------------------------------------------
@@ -293,6 +302,125 @@ class AirtableRepo:
             ],
         )
         return records
+
+    # ------------------------------------------------------------------
+    # Reverse search — Grants (read/write; the in-process scheduler owns these)
+    # ------------------------------------------------------------------
+    # Field names (not IDs) are used across the reverse-search/notification
+    # methods on purpose: the write-back mirrors the n8n source-of-truth mapping
+    # one-for-one, so name-keyed dicts read exactly like the workflow.
+    _GRANT_FIELDS = [
+        "Name",
+        "Grant Description",
+        "Grant Details",
+        "Reverse Search Status",
+        "Scrape Status",
+        "Application Deadline",
+        "Grant Geography",
+        "Eligible Country",
+        "Eligible City",
+        "Eligible Types of Organisation",
+        "Supported Sector",
+        "Application Areas",
+        "Size Classes",
+        "Minimum Years Established",
+        "Maximum Years Established",
+        "Support Forms",
+        "Organisation Archetypes",
+        "Required Subject Expertise",
+        "Consortium Possibility",
+        "Search Matches",  # reverse link of Search Matches.Grant — existing matches
+    ]
+
+    def list_idle_grants(self) -> list[dict[str, Any]]:
+        """Grants awaiting a reverse search. Enrichment/deadline preconditions
+        are checked in Python so the funnel log can explain any skip."""
+        return self._grants.all(
+            formula="{Reverse Search Status} = 'Idle'",
+            fields=self._GRANT_FIELDS,
+        )
+
+    def update_grant_reverse_search(
+        self, grant_record_id: str, *, status: str, log: str | None = None
+    ) -> None:
+        fields: dict[str, Any] = {"Reverse Search Status": status}
+        if log is not None:
+            fields["Reverse Search Log"] = log
+        self._grants.update(grant_record_id, fields, typecast=True)
+
+    # ------------------------------------------------------------------
+    # Reverse search — Companies (read all candidates for filtering)
+    # ------------------------------------------------------------------
+    _COMPANY_FILTER_FIELDS = [
+        "Company name",
+        "Country",
+        "City of Establishment",
+        "Organisation Type",
+        "Activity Sectors",
+        "Application Area",
+        "Company Size Class",
+        "Years of Establishment",
+        "Acceptable Instruments",
+        "Organisation Archetype",
+        "Subject Expertise",
+        "Consortium Stance",
+        "Company description",
+        "Company Preference Profile",
+    ]
+
+    def list_companies_for_filtering(self) -> list[dict[str, Any]]:
+        """All companies with just the fields the filters + LLM input need.
+        Cache the result across a single poll cycle; companies change slowly."""
+        return self._companies.all(fields=self._COMPANY_FILTER_FIELDS)
+
+    # ------------------------------------------------------------------
+    # Reverse search — Search Matches (write + (grant, company) dedup)
+    # ------------------------------------------------------------------
+    def create_search_match(self, fields: dict[str, Any]) -> str:
+        rec = self._search_matches.create(fields, typecast=True)
+        return rec["id"]
+
+    def company_ids_with_existing_matches(self, match_ids: list[str]) -> set[str]:
+        """Company record IDs already linked by the given Search Match rows.
+
+        We pass a grant's existing matches (its ``Search Matches`` reverse link)
+        and get back the companies they cover, so a re-run skips (grant, company)
+        pairs that already have a match instead of duplicating + re-notifying.
+        """
+        out: set[str] = set()
+        for chunk in _chunks(match_ids, 50):
+            formula = "OR(" + ",".join(f"RECORD_ID()='{m}'" for m in chunk) + ")"
+            for rec in self._search_matches.all(formula=formula, fields=["Company"]):
+                for cid in rec.get("fields", {}).get("Company", []) or []:
+                    out.add(cid)
+        return out
+
+    # ------------------------------------------------------------------
+    # Daily client-notification digest
+    # ------------------------------------------------------------------
+    def list_pending_notification_matches(self) -> list[dict[str, Any]]:
+        """Reverse-search matches awaiting their daily email."""
+        return self._search_matches.all(
+            formula="{Notification Status} = 'Pending'",
+            fields=["Company", "Name", "Match Description", "Raw Json", "Grant"],
+        )
+
+    def get_companies_by_ids(self, company_ids: list[str]) -> dict[str, dict[str, Any]]:
+        """Map company record ID -> notification-relevant fields."""
+        out: dict[str, dict[str, Any]] = {}
+        for chunk in _chunks(company_ids, 50):
+            formula = "OR(" + ",".join(f"RECORD_ID()='{c}'" for c in chunk) + ")"
+            for rec in self._companies.all(
+                formula=formula,
+                fields=["Company name", "Email", "Notification Customer"],
+            ):
+                out[rec["id"]] = rec.get("fields", {})
+        return out
+
+    def set_match_notification_status(self, match_id: str, status: str) -> None:
+        self._search_matches.update(
+            match_id, {"Notification Status": status}, typecast=True
+        )
 
     # ------------------------------------------------------------------
     # internals

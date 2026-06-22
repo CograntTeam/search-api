@@ -34,12 +34,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     configure_logging(settings.log_level)
     # Initialise any long-lived clients here as we add them (Airtable, httpx).
-    yield
-    # Graceful shutdown hooks go here.
+    if settings.scheduler_enabled:
+        from app.jobs.scheduler import start_scheduler
+
+        start_scheduler(settings)
+    try:
+        yield
+    finally:
+        # Graceful shutdown hooks go here.
+        if settings.scheduler_enabled:
+            from app.jobs.scheduler import shutdown_scheduler
+
+            shutdown_scheduler()
 
 
 def create_app() -> FastAPI:
-    settings = get_settings()
+    get_settings()  # validate configuration at import time (fail fast)
 
     app = FastAPI(
         title="Cogrant Search API",

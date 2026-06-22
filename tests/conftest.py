@@ -14,8 +14,11 @@ os.environ.setdefault("AIRTABLE_API_KEYS_TABLE_ID", "tblfXzQKso559HNlQ")
 os.environ.setdefault("AIRTABLE_API_JOBS_TABLE_ID", "tbl5QazdvtAVbAHZO")
 os.environ.setdefault("AIRTABLE_SEARCH_MATCHES_TABLE_ID", "tblLPLC7MfX7nuxyr")
 os.environ.setdefault("AIRTABLE_COMPANIES_TABLE_ID", "tblelf4Z6wnpDKr5K")
+os.environ.setdefault("AIRTABLE_GRANTS_TABLE_ID", "tblnRV4RxCOv7X5u6")
 os.environ.setdefault("N8N_WEBHOOK_BASE_URL", "https://example.n8n.cloud/webhook")
 os.environ.setdefault("INTERNAL_SHARED_SECRET", "test_secret_value_long_enough_yes")
+# Never start the background scheduler under test.
+os.environ.setdefault("SCHEDULER_ENABLED", "false")
 
 
 @pytest.fixture(autouse=True)

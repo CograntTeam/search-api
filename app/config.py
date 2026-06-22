@@ -44,6 +44,43 @@ class Settings(BaseSettings):
     # Internal shared secret for n8n -> gateway callbacks
     internal_shared_secret: str = Field(..., min_length=16)
 
+    # Grants table — read/written by the in-process reverse search. Not touched
+    # by the partner-facing API, so it lives outside AIRTABLE_SCHEMA.md's set.
+    airtable_grants_table_id: str = Field(..., pattern=r"^tbl[A-Za-z0-9]{14}$")
+
+    # --- Reverse search (in-process APScheduler) ---
+    # Disabled in tests; the lifespan hook only starts the scheduler when true.
+    scheduler_enabled: bool = True
+    scheduler_timezone: str = "Europe/Vilnius"
+    reverse_search_poll_seconds: int = 120
+    # Bound concurrent Gemini calls so we never fan out past Airtable's 5 req/s.
+    reverse_search_concurrency: int = 5
+    # Safety valve: cap companies sanity-checked per grant (0 = no cap).
+    reverse_search_max_companies: int = 0
+
+    # --- Gemini sanity-check LLM ---
+    # Optional so the app still boots without it; the scheduler logs and skips
+    # reverse-search runs when the key is absent.
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-3.5-flash"
+
+    # --- Daily client-notification digest (Workspace SMTP, app password) ---
+    daily_email_hour: int = 15
+    daily_email_minute: int = 0
+    email_enabled: bool = True
+    # Pilot mode: route every recipient to email_from so you can eyeball real
+    # emails before switching on real client delivery.
+    email_dry_run: bool = False
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None  # Google Workspace app password
+    email_from: str = "info@cogrant.eu"
+    email_reply_to: str = "info@cogrant.eu"
+    email_bcc: str | None = "info@cogrant.eu"
+    # Optional client-portal base; when set, the digest links each match to it.
+    client_portal_url: str | None = None
+
     @property
     def is_production(self) -> bool:
         return self.env == "production"
