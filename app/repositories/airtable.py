@@ -403,7 +403,15 @@ class AirtableRepo:
         """Reverse-search matches awaiting their daily email."""
         return self._search_matches.all(
             formula="{Notification Status} = 'Pending'",
-            fields=["Company", "Name", "Match Description", "Raw Json", "Grant"],
+            fields=[
+                "Company",
+                "Name",
+                "Match Description",
+                "Raw Json",
+                "Grant",
+                "Type",  # Quick Win / Strategic Bid / Stretch Fit (digest eyebrow)
+                "Grant Details JSON",  # funding, deadline, agency, programme, geography
+            ],
         )
 
     def get_companies_by_ids(self, company_ids: list[str]) -> dict[str, dict[str, Any]]:
@@ -413,7 +421,12 @@ class AirtableRepo:
             formula = "OR(" + ",".join(f"RECORD_ID()='{c}'" for c in chunk) + ")"
             for rec in self._companies.all(
                 formula=formula,
-                fields=["Company name", "Email", "Notification Customer"],
+                fields=[
+                    "Company name",
+                    "Email",
+                    "Notification Customer",
+                    "First name (šauksmininkas)",  # vocative first name for the greeting
+                ],
             ):
                 out[rec["id"]] = rec.get("fields", {})
         return out

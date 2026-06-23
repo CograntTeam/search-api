@@ -116,3 +116,22 @@ def test_flatten_builds_formatted_helpers():
     assert "Is an SME" in flat["formatted_criteria"]
     assert "Objective: Strong fit" in flat["formatted_fits"]
     assert flat["formatted_fits"].count("\n") == 4  # 5 fit lines
+
+
+def test_match_type_written_when_valid():
+    fields = build_search_match_fields(
+        _decision(match_type="Quick Win"), grant_id="recG", company_id="recC"
+    )
+    assert fields["Type"] == "Quick Win"
+    assert json.loads(fields["Raw Json"])["Match Type"] == "Quick Win"
+
+
+def test_match_type_omitted_when_absent_or_invalid():
+    # Absent from the decision: no Type key at all (legacy rows stay empty).
+    fields = build_search_match_fields(_decision(), grant_id="recG", company_id="recC")
+    assert "Type" not in fields
+    # A stray value is never coerced into Airtable.
+    fields = build_search_match_fields(
+        _decision(match_type="banana"), grant_id="recG", company_id="recC"
+    )
+    assert "Type" not in fields

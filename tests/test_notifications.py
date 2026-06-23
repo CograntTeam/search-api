@@ -25,21 +25,47 @@ def _settings(**overrides: Any) -> Settings:
     return Settings(**base)  # required fields come from the test env (conftest)
 
 
-def _match(match_id: str, company_id: str, *, title: str = "Eurostars Call 11") -> dict[str, Any]:
+def _match(
+    match_id: str,
+    company_id: str,
+    *,
+    title: str = "Eurostars Call 11",
+    type_: str | None = None,
+    grant_details: dict | None = None,
+) -> dict[str, Any]:
     raw = {
         "Hook sentence": "Scale across Europe.",
         "Match Summary": "Strong candidate for international R&D.",
+        "Match Level": "Eligible",
         "formatted_fits": "🟢 Eligibility: Eligible\n🟢 Objective: Strong fit",
     }
-    return {
-        "id": match_id,
-        "fields": {
-            "Company": [company_id],
-            "Name": title,
-            "Match Description": "Scale across Europe.\n\nStrong candidate.",
-            "Raw Json": json.dumps(raw),
-        },
+    fields: dict[str, Any] = {
+        "Company": [company_id],
+        "Name": title,
+        "Match Description": "Scale across Europe.\n\nStrong candidate.",
+        "Raw Json": json.dumps(raw),
     }
+    if type_ is not None:
+        fields["Type"] = type_
+    if grant_details is not None:
+        # Airtable lookup fields arrive as a single-element list.
+        fields["Grant Details JSON"] = [json.dumps(grant_details)]
+    return {"id": match_id, "fields": fields}
+
+
+_GRANT_DETAILS = {
+    "core_metadata": {
+        "short_grant_name": "Smart Specialisation R&D",
+        "managing_authority": "Innovation Agency Lithuania",
+        "program_name": "RIS3",
+    },
+    "financials": {
+        "currency": "EUR",
+        "funding_tiers": [{"minimum_funding_ticket": 100000, "maximum_funding_ticket": 300000}],
+    },
+    "timelines": {"application_stages": [{"deadline_date": "2030-09-15"}]},
+    "eligibility_and_consortia": {"geography_level": "National"},
+}
 
 
 class FakeRepo:
@@ -75,17 +101,52 @@ class FakeSmtp:
 def test_render_digest_contents():
     settings = _settings()
     subject, text, html = render_digest("Acme Bio", [_match("m1", "c1")], settings)
-    assert "1 new grant match" in subject
-    assert "Acme Bio" in subject
+    assert subject == "1 new opportunity matched to Acme Bio"
     assert "Eurostars Call 11" in text
     assert "Scale across Europe" in text
     assert "Eurostars Call 11" in html
-    assert "🟢 Objective: Strong fit" in html
+    assert "planner.cogrant.eu" in html
 
 
 def test_render_digest_pluralisation():
     subject, _, _ = render_digest("Acme", [_match("m1", "c1"), _match("m2", "c1")], _settings())
-    assert "2 new grant matches" in subject
+    assert subject == "2 new opportunities matched to Acme"
+
+
+def test_render_digest_full_card_from_grant_details():
+    _, _, html = render_digest(
+        "Acme",
+        [_match("m1", "c1", type_="Quick Win", grant_details=_GRANT_DETAILS)],
+        _settings(),
+    )
+    assert "Smart Specialisation R&amp;D" in html  # short_grant_name overrides Name
+    assert "Innovation Agency Lithuania · RIS3" in html
+    assert "€100K–€300K" in html
+    assert "15 Sep 2030" in html
+    assert "days left" in html
+    assert "Quick Win · National" in html
+
+
+def test_render_digest_degrades_without_grant_details():
+    _, _, html = render_digest("Acme", [_match("m1", "c1")], _settings())
+    assert "Eurostars Call 11" in html  # falls back to the match Name
+    assert "Scale across Europe" in html  # description still renders
+    assert "planner.cogrant.eu" in html
+    # No enrichment -> no funding/deadline tokens, nothing fabricated.
+    assert "days left" not in html
+    assert "€" not in html
+    assert "Up to" not in html
+
+
+def test_render_digest_greeting_uses_first_name():
+    _, text, html = render_digest("Acme", [_match("m1", "c1")], _settings(), first_name="Rūta")
+    assert "Hi Rūta -" in html
+    assert "Hi Rūta," in text
+
+
+def test_render_digest_greeting_without_first_name():
+    _, _, html = render_digest("Acme", [_match("m1", "c1")], _settings())
+    assert "Hi there -" in html
 
 
 # ---------------------------------------------------------------------------

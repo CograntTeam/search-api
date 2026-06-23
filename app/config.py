@@ -79,8 +79,9 @@ class Settings(BaseSettings):
     email_from: str = "info@cogrant.eu"
     email_reply_to: str = "info@cogrant.eu"
     email_bcc: str | None = "info@cogrant.eu"
-    # Optional client-portal base; when set, the digest links each match to it.
-    client_portal_url: str | None = None
+    # Client portal (planner) base. The digest links every opportunity card and
+    # the primary CTA here; override per environment if the host changes.
+    client_portal_url: str | None = "https://planner.cogrant.eu"
 
     @property
     def is_production(self) -> bool:

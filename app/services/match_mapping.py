@@ -40,6 +40,14 @@ _ELIGIBILITY_OPTIONS = {
     "Not Eligible",
     "No Information",
 }
+# Search Match "Type" singleSelect options (captured from the live base). The
+# sanity check classifies each PASS match into one of these; anything else is
+# omitted rather than coerced, so a stray value never lands in Airtable.
+_TYPE_OPTIONS = {
+    "Quick Win",
+    "Strategic Bid",
+    "Stretch Fit",
+}
 
 # The four feasibility/fit dimensions the gate inspects.
 _GATE_FIT_KEYS = (
@@ -176,6 +184,7 @@ def flatten_decision(decision: dict[str, Any]) -> dict[str, Any]:
         "Activities Questions": _arr(decision.get("activity_upgrade_question")),
         "Capacity Fit Level": _s(decision.get("capacity_fit_status")),
         "Activity Fit Level": _s(decision.get("activity_fit_status")),
+        "Match Type": _s(decision.get("match_type")),
     }
 
     questions: list[str] = []
@@ -223,7 +232,7 @@ def build_search_match_fields(
     consortium = flat.get("Consortium") or {}
     missing_roles = consortium.get("missing_partner_roles") if isinstance(consortium, dict) else None
 
-    return {
+    fields: dict[str, Any] = {
         "Grant": [grant_id],
         "Company": [company_id],
         "Match Description": f"{flat['Hook sentence']}\n\n{flat['Match Summary']}",
@@ -244,3 +253,8 @@ def build_search_match_fields(
         "Capacity Fit": _coerce(flat["Capacity Fit Level"], _FIT_OPTIONS),
         "Notification Status": notification_status,
     }
+    # Only write Type when the model emitted a valid option; never coerce to a
+    # stray value (legacy/odd rows simply keep an empty Type).
+    if flat["Match Type"] in _TYPE_OPTIONS:
+        fields["Type"] = flat["Match Type"]
+    return fields

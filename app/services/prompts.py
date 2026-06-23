@@ -1,10 +1,11 @@
 """The Grant-Company Match Sanity Checker prompt.
 
-Ported verbatim from the n8n sub-workflow ``1.1 A - Parallel Match Sanity Check``
-(id ``hvBbZKkRwXEv4qJX``). Keep ``SANITY_CHECK_INSTRUCTIONS`` byte-for-byte
-identical to the n8n node so the API produces the same verdicts the existing
-pipeline does — the only intended behavioural change lives in the write-back
-mapping (the Budget Fit Status fix), not here.
+Ported from the n8n sub-workflow ``1.1 A - Parallel Match Sanity Check``
+(id ``hvBbZKkRwXEv4qJX``). ``SANITY_CHECK_INSTRUCTIONS`` tracks the n8n node closely
+so the API produces the same verdicts the existing pipeline does. Two intended
+divergences exist: the write-back's Budget Fit Status fix (see match_mapping), and
+the ``match_type`` classification added to the decision output here — it sets the
+Search Match ``Type`` and the digest card label, and never affects the go/no-go gate.
 
 The n8n node sends a single combined message: the data block first, then the
 instruction block, with JSON output mode on. :func:`build_sanity_check_prompt`
@@ -114,6 +115,17 @@ Derived only from the analysis below. Do not introduce new claims here.
   world style).
 - Match summary — 2-3 sentences explaining why the company should or should not apply.
   Decision-informing only; do not retell the company's own story.
+- match_type — one strategic tier for this match, chosen AFTER the analysis below. Only
+  matches that pass the gate are ever surfaced, so all three mean "worth pursuing". Pick
+  exactly one:
+    * "Quick Win" — eligible or likely eligible with strong or likely objective AND activity
+      fit, modest scale, and low execution complexity (mono-beneficiary or optional
+      consortium, lighter budget). High win-probability, low effort.
+    * "Strategic Bid" — high strategic value or a large funding ceiling, but heavy effort or
+      strong competition (large budget, EU-wide flagship, consortium required or complex).
+      Worth a serious, resourced bid.
+    * "Stretch Fit" — passes the gate but is the least comfortable reach: an Unlikely fit is
+      present, significant reframing is needed, or there is a visible capacity/consortium gap.
 
 ================================================================================
 1. HARD REQUIREMENT MATCH (ELIGIBILITY GATE)
@@ -528,6 +540,7 @@ Strictly do not use em dashes "—". Use spaced en dashes " – " or hyphens " -
   "decision": {
     "Hook": "string",
     "Match summary": "string",
+    "match_type": "'Quick Win' / 'Strategic Bid' / 'Stretch Fit'",
     "hard_requirement_match_verdict": "string",
     "eligibility_criteria": [
       {
