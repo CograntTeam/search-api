@@ -353,6 +353,7 @@ class AirtableRepo:
     # ------------------------------------------------------------------
     _COMPANY_FILTER_FIELDS = [
         "Company name",
+        "Notification Customer",  # reverse-search Pro gate (see match_filters)
         "Country",
         "City of Establishment",
         "Organisation Type",

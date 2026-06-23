@@ -59,11 +59,12 @@ def _grant(deadline: str = "2099-01-01", scrape: str = "Data Enriched", matches=
     }
 
 
-def _company(cid: str) -> dict[str, Any]:
+def _company(cid: str, *, tier: str = "Pro") -> dict[str, Any]:
     return {
         "id": cid,
         "fields": {
             "Company name": cid.upper(),
+            "Notification Customer": tier,
             "Country": "Lithuania",
             "City of Establishment": "",
             "Organisation Type": "Private Business",
@@ -175,3 +176,14 @@ async def test_dedup_skips_already_matched_company():
     assert repo.created[0]["Company"] == ["c2"]
     assert len(gemini.calls) == 1  # c1 never reaches the LLM
     assert "Skipped (already matched): 1" in repo.status_updates[-1]["log"]
+
+
+async def test_reverse_search_skips_non_pro_companies():
+    repo = FakeRepo([_grant()], [_company("c1"), _company("c2", tier="Basic")])
+    gemini = FakeGemini(PASS_DECISION)
+    await ReverseSearchService(repo, gemini, _settings()).run_once()
+
+    assert len(repo.created) == 1  # only the Pro company
+    assert repo.created[0]["Company"] == ["c1"]
+    assert len(gemini.calls) == 1  # non-Pro never reaches the LLM
+    assert "notification tier" in repo.status_updates[-1]["log"]

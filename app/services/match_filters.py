@@ -6,6 +6,9 @@ it as one server-side formula; we apply the clauses sequentially in Python so we
 can report the per-filter funnel (how many companies survive each step) onto the
 grant's ``Reverse Search Log``.
 
+The funnel begins with a Cogrant business gate — only ``Notification Customer = Pro``
+companies are checked — then applies the 12 ported eligibility clauses below.
+
 Airtable formula semantics we reproduce:
 * ``FIND(needle, haystack)`` is truthy when ``needle`` is empty or a substring of
   ``haystack`` (Airtable returns 1 for an empty needle).
@@ -34,6 +37,10 @@ SCRAPE_STATUS_READY = "Data Enriched"
 # Skip grants whose deadline is sooner than this — no point notifying a client
 # about a call that closes within the week.
 DEADLINE_MIN_DAYS = 7
+# Only notification-enabled companies are worth a reverse search (only they get
+# emailed). Must stay in sync with the email gate in app/services/notifications.py
+# (_ENABLED_TIERS). Hardcoded to Pro per product decision.
+NOTIFICATION_ENABLED_TIER = "Pro"
 
 
 # ---------------------------------------------------------------------------
@@ -252,6 +259,19 @@ def run_filter_funnel(
     """
     survivors = list(companies)
     funnel = FilterFunnel(reviewed=len(survivors))
+
+    # Cogrant gate (runs before the ported eligibility clauses): only
+    # notification-enabled companies are checked, since only they are emailed.
+    kept = [
+        rec
+        for rec in survivors
+        if _text(rec.get("fields", {}).get("Notification Customer")) == NOTIFICATION_ENABLED_TIER
+    ]
+    funnel.stages.append(
+        FunnelStage("notification tier", dropped=len(survivors) - len(kept), remaining=len(kept))
+    )
+    survivors = kept
+
     for name, fn in CLAUSES:
         kept: list[dict[str, Any]] = []
         dropped = 0

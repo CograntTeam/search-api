@@ -27,6 +27,7 @@ GRANT = {
 
 def _company(cid, **fields):
     base = {
+        "Notification Customer": "Pro",
         "Country": "Lithuania",
         "City of Establishment": "",
         "Organisation Type": "Private Business",
@@ -88,6 +89,22 @@ def test_consortium_stance_compatibility():
     optional = run_filter_funnel([_company("c2", **{"Consortium Stance": "Consortium Optional"})], grant)
     assert mono.eligible_count == 0  # mono can't do a consortium-required call
     assert optional.eligible_count == 1
+
+
+def test_non_pro_company_dropped_at_tier_stage():
+    # The reverse search only checks Pro companies; non-Pro drop before any
+    # eligibility clause runs.
+    companies = [
+        _company("c1"),  # Pro by default -> stays in
+        _company("c2", **{"Notification Customer": "Basic"}),
+        _company("c3", **{"Notification Customer": ""}),  # blank -> dropped
+    ]
+    funnel = run_filter_funnel(companies, GRANT)
+    assert funnel.reviewed == 3
+    assert funnel.stages[0].name == "notification tier"
+    assert funnel.stages[0].dropped == 2
+    assert funnel.eligible_count == 1
+    assert funnel.eligible[0]["id"] == "c1"
 
 
 # ---------------------------------------------------------------------------

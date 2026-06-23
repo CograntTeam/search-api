@@ -4,7 +4,8 @@ Replaces the n8n workflow ``2 - Reverse Search Initiation`` + its fan-out to
 ``1.1 A``. For each Queued, enriched, not-closing-soon grant it:
 
 1. claims the grant (Queued -> In Progress),
-2. filters all companies down to the eligible set (recording the funnel),
+2. filters companies down to the eligible set — Pro-only, then the 12 eligibility
+   clauses — recording the funnel,
 3. runs the Gemini sanity check per eligible company (bounded concurrency),
 4. creates a Search Match only for PASS verdicts (dedup against existing ones),
 5. writes the funnel/summary to the grant's Reverse Search Log and marks it
