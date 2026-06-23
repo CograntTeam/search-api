@@ -38,7 +38,7 @@ def _grant(deadline: str = "2099-01-01", scrape: str = "Data Enriched", matches=
             "Name": "Eurostars Call 11",
             "Grant Description": "International R&D for SMEs.",
             "Grant Details": "Up to 500k.",
-            "Reverse Search Status": "Idle",
+            "Reverse Search Status": "Queued",
             "Scrape Status": scrape,
             "Application Deadline": deadline,
             "Grant Geography": "European",
@@ -100,7 +100,7 @@ class FakeRepo:
         self.created: list[dict[str, Any]] = []
         self.companies_fetched = 0
 
-    def list_idle_grants(self):
+    def list_queued_grants(self):
         return [dict(g) for g in self._grants]
 
     def list_companies_for_filtering(self):
@@ -145,10 +145,10 @@ async def test_fail_creates_no_matches():
     assert "2 dismissed" in repo.status_updates[-1]["log"]
 
 
-async def test_not_enriched_grant_left_idle():
+async def test_not_enriched_grant_left_queued():
     repo = FakeRepo([_grant(scrape="Running")], [_company("c1")])
     await ReverseSearchService(repo, FakeGemini(PASS_DECISION), _settings()).run_once()
-    assert repo.status_updates == []  # untouched, stays Idle
+    assert repo.status_updates == []  # untouched, stays Queued
     assert repo.created == []
     assert repo.companies_fetched == 0
 

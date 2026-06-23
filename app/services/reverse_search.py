@@ -1,9 +1,9 @@
 """Reverse-search orchestrator.
 
 Replaces the n8n workflow ``2 - Reverse Search Initiation`` + its fan-out to
-``1.1 A``. For each Idle, enriched, not-closing-soon grant it:
+``1.1 A``. For each Queued, enriched, not-closing-soon grant it:
 
-1. claims the grant (Idle -> In Progress),
+1. claims the grant (Queued -> In Progress),
 2. filters all companies down to the eligible set (recording the funnel),
 3. runs the Gemini sanity check per eligible company (bounded concurrency),
 4. creates a Search Match only for PASS verdicts (dedup against existing ones),
@@ -76,16 +76,16 @@ class ReverseSearchService:
             logger.warning("reverse_search.skip reason=gemini_api_key_missing")
             return
 
-        grants = await asyncio.to_thread(self.repo.list_idle_grants)
+        grants = await asyncio.to_thread(self.repo.list_queued_grants)
         if not grants:
             return
-        logger.info("reverse_search.poll idle_grants=%d", len(grants))
+        logger.info("reverse_search.poll queued_grants=%d", len(grants))
 
         companies: list[dict[str, Any]] | None = None
         for grant in grants:
             reason = grant_precondition(grant.get("fields", {}))
             if reason == "not enriched":
-                # Leave Idle; it'll be picked up once enrichment completes.
+                # Leave Queued; it'll be picked up once enrichment completes.
                 continue
             if reason:
                 # Permanent skip (deadline). Mark Completed so we don't re-poll it.

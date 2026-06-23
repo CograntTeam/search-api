@@ -210,7 +210,7 @@ def grant_precondition(grant_fields: Mapping[str, Any], *, today: date | None = 
     """Return a skip-reason string if the grant should not be processed now,
     else ``None``.
 
-    * not enriched  -> retry later (caller leaves it Idle)
+    * not enriched  -> retry later (caller leaves it Queued)
     * deadline soon -> permanent skip (caller marks it Completed)
     """
     today = today or date.today()

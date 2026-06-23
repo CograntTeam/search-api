@@ -332,11 +332,11 @@ class AirtableRepo:
         "Search Matches",  # reverse link of Search Matches.Grant — existing matches
     ]
 
-    def list_idle_grants(self) -> list[dict[str, Any]]:
-        """Grants awaiting a reverse search. Enrichment/deadline preconditions
-        are checked in Python so the funnel log can explain any skip."""
+    def list_queued_grants(self) -> list[dict[str, Any]]:
+        """Grants explicitly queued for a reverse search. Enrichment/deadline
+        preconditions are checked in Python so the funnel log can explain any skip."""
         return self._grants.all(
-            formula="{Reverse Search Status} = 'Idle'",
+            formula="{Reverse Search Status} = 'Queued'",
             fields=self._GRANT_FIELDS,
         )
 

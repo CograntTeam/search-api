@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import pytest
+
 from app.config import Settings
 from app.services.notifications import NotificationService, render_digest
 from app.services.smtp_client import SmtpError
@@ -113,10 +115,23 @@ async def test_disabled_company_is_skipped_not_emailed():
     assert repo.status_updates == [("m1", "Skipped")]
 
 
+@pytest.mark.parametrize("tier", ["Basic", "Custom"])
+async def test_non_pro_tiers_are_skipped(tier):
+    # Only Pro is notification-enabled now; Basic/Custom are skipped, not emailed.
+    repo = FakeRepo(
+        [_match("m1", "c1")],
+        {"c1": {"Company name": "Acme", "Email": "team@acme.com", "Notification Customer": tier}},
+    )
+    smtp = FakeSmtp()
+    await NotificationService(repo, smtp, _settings()).run_daily()
+    assert smtp.sent == []
+    assert repo.status_updates == [("m1", "Skipped")]
+
+
 async def test_enabled_company_without_email_is_skipped():
     repo = FakeRepo(
         [_match("m1", "c1")],
-        {"c1": {"Company name": "Acme", "Email": "", "Notification Customer": "Basic"}},
+        {"c1": {"Company name": "Acme", "Email": "", "Notification Customer": "Pro"}},
     )
     smtp = FakeSmtp()
     await NotificationService(repo, smtp, _settings()).run_daily()
@@ -127,7 +142,7 @@ async def test_enabled_company_without_email_is_skipped():
 async def test_dry_run_routes_to_sender_address():
     repo = FakeRepo(
         [_match("m1", "c1")],
-        {"c1": {"Company name": "Acme", "Email": "team@acme.com", "Notification Customer": "Custom"}},
+        {"c1": {"Company name": "Acme", "Email": "team@acme.com", "Notification Customer": "Pro"}},
     )
     smtp = FakeSmtp()
     await NotificationService(repo, smtp, _settings(email_dry_run=True)).run_daily()

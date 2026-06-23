@@ -4,9 +4,8 @@ At 15:00 Europe/Vilnius, group all ``Notification Status = Pending`` reverse-sea
 matches by company and email each notification-enabled company a single digest of
 its new matches. Matches then move to Sent / Failed / Skipped.
 
-Gate: a company is notification-enabled iff ``Notification Customer`` is one of
-Basic / Pro / Custom (i.e. not ``False`` and not blank), re-checked here at send
-time. Companies with no email are skipped and logged.
+Gate: a company is notification-enabled iff ``Notification Customer`` is ``Pro``,
+re-checked here at send time. Companies with no email are skipped and logged.
 """
 
 from __future__ import annotations
@@ -23,8 +22,8 @@ from app.services.smtp_client import SmtpClient, SmtpError
 
 logger = logging.getLogger(__name__)
 
-# Notification Customer values that count as "enabled".
-_ENABLED_TIERS = {"Basic", "Pro", "Custom"}
+# Notification Customer values that count as "enabled". Restricted to Pro only.
+_ENABLED_TIERS = {"Pro"}
 
 _STATUS_PENDING = "Pending"
 _STATUS_SENT = "Sent"
