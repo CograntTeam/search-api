@@ -55,8 +55,9 @@ class Settings(BaseSettings):
     reverse_search_poll_seconds: int = 120
     # Bound concurrent Gemini calls so we never fan out past Airtable's 5 req/s.
     reverse_search_concurrency: int = 5
-    # Safety valve: cap companies sanity-checked per grant (0 = no cap).
-    reverse_search_max_companies: int = 0
+    # Safety valve: cap the companies sanity-checked (Gemini-called) per grant so
+    # one broad grant can't fan out into a huge token burst. 0 = no cap.
+    reverse_search_max_companies: int = 50
 
     # --- Gemini sanity-check LLM ---
     # Optional so the app still boots without it; the scheduler logs and skips

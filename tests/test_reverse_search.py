@@ -187,3 +187,15 @@ async def test_reverse_search_skips_non_pro_companies():
     assert repo.created[0]["Company"] == ["c1"]
     assert len(gemini.calls) == 1  # non-Pro never reaches the LLM
     assert "notification tier" in repo.status_updates[-1]["log"]
+
+
+async def test_per_grant_cap_limits_sanity_checks():
+    repo = FakeRepo([_grant()], [_company("c1"), _company("c2"), _company("c3")])
+    gemini = FakeGemini(PASS_DECISION)
+    await ReverseSearchService(
+        repo, gemini, _settings(reverse_search_max_companies=2)
+    ).run_once()
+
+    assert len(gemini.calls) == 2  # only 2 of 3 eligible companies reach the LLM
+    assert len(repo.created) == 2
+    assert "Skipped (per-grant cap): 1" in repo.status_updates[-1]["log"]

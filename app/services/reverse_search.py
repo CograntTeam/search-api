@@ -138,6 +138,13 @@ class ReverseSearchService:
             capped = 0
             if cap and len(eligible) > cap:
                 capped = len(eligible) - cap
+                logger.warning(
+                    "reverse_search.capped grant=%s eligible=%d cap=%d skipped=%d",
+                    grant_id,
+                    len(eligible),
+                    cap,
+                    capped,
+                )
                 eligible = eligible[:cap]
 
             outcome = await self._sanity_check_companies(grant, fields, eligible)
