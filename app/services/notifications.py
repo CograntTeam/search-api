@@ -100,6 +100,13 @@ def _text(value: Any) -> str:
     return str(value)
 
 
+def _lookup_first(value: Any) -> Any:
+    """First scalar from an Airtable lookup field (lookups arrive as a list)."""
+    if isinstance(value, list):
+        return value[0] if value else None
+    return value
+
+
 def _parse_raw_json(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         return value
@@ -212,6 +219,23 @@ def _deadline_and_days(gd: GrantDetails | None, today: date) -> tuple[str, int |
         d
         for st in (gd.timelines.application_stages or [])
         if (d := _parse_iso_date(st.deadline_date)) is not None and d >= today
+    ]
+    if not future:
+        return "", None
+    nearest = min(future)
+    return _fmt_date(nearest), (nearest - today).days
+
+
+def _deadline_from_field(value: Any, today: date) -> tuple[str, int | None]:
+    """Nearest upcoming deadline from the grant's ``Grant Deadline`` lookup.
+
+    The lookup arrives as one or more ISO date strings; we pick the nearest one
+    still in the future (mirroring :func:`_deadline_and_days`). ``("", None)`` if
+    none are upcoming or the field is empty.
+    """
+    values = value if isinstance(value, list) else [value]
+    future = [
+        d for v in values if (d := _parse_iso_date(v)) is not None and d >= today
     ]
     if not future:
         return "", None
@@ -385,8 +409,13 @@ def render_digest(
         eyebrow = _eyebrow(match_type, eligibility, _scope_label(gd))
         subtitle = _subtitle(gd)
         desc = _card_description(fields, raw)
-        funding = _funding_label(gd)
-        date_str, days = _deadline_and_days(gd, today)
+        # Funding + deadline come from the grant's ready-made lookup fields
+        # ("Grant Size", "Grant Deadline"); fall back to the parsed Grant Details
+        # JSON only when a grant hasn't populated them.
+        funding = _text(_lookup_first(fields.get("Grant Size"))).strip() or _funding_label(gd)
+        date_str, days = _deadline_from_field(fields.get("Grant Deadline"), today)
+        if not date_str:
+            date_str, days = _deadline_and_days(gd, today)
         if days is not None:
             days_seen.append(days)
         ceiling_total += _max_ticket(gd)

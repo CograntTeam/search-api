@@ -32,6 +32,8 @@ def _match(
     title: str = "Eurostars Call 11",
     type_: str | None = None,
     grant_details: dict | None = None,
+    grant_size: str | None = None,
+    grant_deadline: str | None = None,
 ) -> dict[str, Any]:
     raw = {
         "Hook sentence": "Scale across Europe.",
@@ -47,8 +49,12 @@ def _match(
     }
     if type_ is not None:
         fields["Type"] = type_
+    # Airtable lookup fields arrive as a single-element list.
+    if grant_size is not None:
+        fields["Grant Size"] = [grant_size]
+    if grant_deadline is not None:
+        fields["Grant Deadline"] = [grant_deadline]
     if grant_details is not None:
-        # Airtable lookup fields arrive as a single-element list.
         fields["Grant Details JSON"] = [json.dumps(grant_details)]
     return {"id": match_id, "fields": fields}
 
@@ -125,6 +131,40 @@ def test_render_digest_full_card_from_grant_details():
     assert "15 Sep 2030" in html
     assert "days left" in html
     assert "Quick Win · National" in html
+
+
+def test_render_digest_prefers_grant_size_and_deadline_fields():
+    # The card reads the grant's ready-made "Grant Size" / "Grant Deadline" lookups
+    # in preference to anything derived from the Grant Details JSON blob.
+    _, _, html = render_digest(
+        "Acme",
+        [
+            _match(
+                "m1",
+                "c1",
+                grant_size="Up to 500k€",
+                grant_deadline="2030-09-10",
+                grant_details=_GRANT_DETAILS,
+            )
+        ],
+        _settings(),
+    )
+    assert "Up to 500k€" in html  # dedicated field used verbatim
+    assert "€100K–€300K" not in html  # gd-derived funding is overridden
+    assert "10 Sep 2030" in html  # dedicated deadline
+    assert "15 Sep 2030" not in html  # gd-derived deadline is overridden
+    assert "days left" in html
+
+
+def test_render_digest_falls_back_to_grant_details_when_fields_absent():
+    # No dedicated fields -> derive funding/deadline from the Grant Details JSON.
+    _, _, html = render_digest(
+        "Acme",
+        [_match("m1", "c1", grant_details=_GRANT_DETAILS)],
+        _settings(),
+    )
+    assert "€100K–€300K" in html
+    assert "15 Sep 2030" in html
 
 
 def test_render_digest_degrades_without_grant_details():

@@ -422,7 +422,9 @@ class AirtableRepo:
                 "Raw Json",
                 "Grant",
                 "Type",  # Quick Win / Strategic Bid / Stretch Fit (digest eyebrow)
-                "Grant Details JSON",  # funding, deadline, agency, programme, geography
+                "Grant Size",  # ready-made funding range, e.g. "Up to 500k€"
+                "Grant Deadline",  # application deadline (date) from the grant
+                "Grant Details JSON",  # fallback source for funding/deadline + agency/programme/geography
             ],
         )
 
