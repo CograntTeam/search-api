@@ -578,15 +578,21 @@ class NotificationService:
         self.smtp = smtp
         self.settings = settings
 
-    async def run_daily(self) -> None:
+    async def run_daily(self, *, dry_run: bool | None = None) -> dict[str, int]:
+        """Send the pending-match digest. ``dry_run`` overrides ``email_dry_run``
+        for this call (``None`` honours the global setting); returns a count summary."""
+        dry_run_effective = (
+            self.settings.email_dry_run if dry_run is None else dry_run
+        )
+        empty = {"companies": 0, "sent": 0, "skipped": 0, "failed": 0}
         if not self.settings.email_enabled:
             logger.info("notifications.skip reason=email_disabled")
-            return
+            return empty
 
         matches = await asyncio.to_thread(self.repo.list_pending_notification_matches)
         if not matches:
             logger.info("notifications.none_pending")
-            return
+            return empty
 
         # Group pending matches by their (single) linked company.
         groups: dict[str, list[dict[str, Any]]] = {}
@@ -622,7 +628,7 @@ class NotificationService:
             subject, text_body, html_body = render_digest(
                 company_name, company_matches, self.settings, first_name=first_name
             )
-            recipient = self.settings.email_from if self.settings.email_dry_run else email
+            recipient = self.settings.email_from if dry_run_effective else email
             try:
                 await self.smtp.send(
                     to=recipient,
@@ -646,6 +652,12 @@ class NotificationService:
             skipped,
             failed,
         )
+        return {
+            "companies": len(groups),
+            "sent": sent,
+            "skipped": skipped,
+            "failed": failed,
+        }
 
     async def _mark(self, matches: list[dict[str, Any]], status: str) -> None:
         for match in matches:
