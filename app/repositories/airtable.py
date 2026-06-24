@@ -73,9 +73,12 @@ class AirtableRepo:
             self.settings.airtable_base_id,
             self.settings.airtable_companies_table_id,
         )
-        self._grants = self._api.table(
-            self.settings.airtable_base_id,
-            self.settings.airtable_grants_table_id,
+        # Optional: the partner API and the daily-digest job build the repo too and
+        # don't touch grants, so build it only when configured. The reverse-search
+        # poller — the sole consumer — is gated on this id in start_scheduler.
+        gid = self.settings.airtable_grants_table_id
+        self._grants = (
+            self._api.table(self.settings.airtable_base_id, gid) if gid else None
         )
 
     # ------------------------------------------------------------------
@@ -337,6 +340,15 @@ class AirtableRepo:
         preconditions are checked in Python so the funnel log can explain any skip."""
         return self._grants.all(
             formula="{Reverse Search Status} = 'Queued'",
+            fields=self._GRANT_FIELDS,
+        )
+
+    def list_in_progress_grants(self) -> list[dict[str, Any]]:
+        """Grants stranded mid-run. Status flips to In Progress *before* a run and a
+        completion log is always written at the end, so an In Progress grant is an
+        orphan from a killed process — re-queued on startup (see requeue_orphans)."""
+        return self._grants.all(
+            formula="{Reverse Search Status} = 'In Progress'",
             fields=self._GRANT_FIELDS,
         )
 

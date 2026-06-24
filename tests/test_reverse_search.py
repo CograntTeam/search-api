@@ -93,16 +93,20 @@ class FakeGemini:
 
 
 class FakeRepo:
-    def __init__(self, grants, companies, existing_company_ids=None) -> None:
+    def __init__(self, grants, companies, existing_company_ids=None, in_progress=None) -> None:
         self._grants = grants
         self._companies = companies
         self._existing = set(existing_company_ids or [])
+        self._in_progress = in_progress or []
         self.status_updates: list[dict[str, Any]] = []
         self.created: list[dict[str, Any]] = []
         self.companies_fetched = 0
 
     def list_queued_grants(self):
         return [dict(g) for g in self._grants]
+
+    def list_in_progress_grants(self):
+        return [dict(g) for g in self._in_progress]
 
     def list_companies_for_filtering(self):
         self.companies_fetched += 1
@@ -199,3 +203,24 @@ async def test_per_grant_cap_limits_sanity_checks():
     assert len(gemini.calls) == 2  # only 2 of 3 eligible companies reach the LLM
     assert len(repo.created) == 2
     assert "Skipped (per-grant cap): 1" in repo.status_updates[-1]["log"]
+
+
+async def test_requeue_orphans_resets_in_progress_to_queued():
+    orphans = [
+        {"id": "recA", "fields": {"Reverse Search Status": "In Progress"}},
+        {"id": "recB", "fields": {"Reverse Search Status": "In Progress"}},
+    ]
+    repo = FakeRepo([], [], in_progress=orphans)
+    count = await ReverseSearchService(repo, FakeGemini(PASS_DECISION), _settings()).requeue_orphans()
+
+    assert count == 2
+    assert {u["id"] for u in repo.status_updates} == {"recA", "recB"}
+    assert all(u["status"] == "Queued" for u in repo.status_updates)
+    assert repo.created == []  # recovery only re-queues; it doesn't run the LLM
+
+
+async def test_requeue_orphans_noop_when_none_stranded():
+    repo = FakeRepo([], [])
+    count = await ReverseSearchService(repo, FakeGemini(PASS_DECISION), _settings()).requeue_orphans()
+    assert count == 0
+    assert repo.status_updates == []

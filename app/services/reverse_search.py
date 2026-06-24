@@ -103,6 +103,33 @@ class ReverseSearchService:
             await self._process_grant(grant, companies)
 
     # ------------------------------------------------------------------
+    async def requeue_orphans(self) -> int:
+        """Reset grants stranded in 'In Progress' back to 'Queued'.
+
+        A grant goes In Progress *before* its run and always gets a completion log
+        (even on error), so an In Progress grant means a prior run's process died
+        mid-flight. Called once at startup — no run is in flight then, so every such
+        grant is a safe orphan to re-queue for the next poll.
+        """
+        grants = await asyncio.to_thread(self.repo.list_in_progress_grants)
+        if not grants:
+            return 0
+        note = (
+            "Re-queued by orphan recovery — "
+            f"{datetime.now(UTC).isoformat(timespec='seconds')}\n"
+            "A previous run was interrupted before it completed."
+        )
+        for grant in grants:
+            await asyncio.to_thread(
+                self.repo.update_grant_reverse_search,
+                grant["id"],
+                status="Queued",
+                log=note,
+            )
+        logger.info("reverse_search.requeue_orphans count=%d", len(grants))
+        return len(grants)
+
+    # ------------------------------------------------------------------
     async def _process_grant(
         self, grant: dict[str, Any], companies: list[dict[str, Any]]
     ) -> None:

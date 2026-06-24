@@ -35,8 +35,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configure_logging(settings.log_level)
     # Initialise any long-lived clients here as we add them (Airtable, httpx).
     if settings.scheduler_enabled:
-        from app.jobs.scheduler import start_scheduler
+        from app.jobs.scheduler import recover_orphans_on_startup, start_scheduler
 
+        await recover_orphans_on_startup(settings)
         start_scheduler(settings)
     try:
         yield
