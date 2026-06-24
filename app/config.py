@@ -44,11 +44,15 @@ class Settings(BaseSettings):
     # Internal shared secret for n8n -> gateway callbacks
     internal_shared_secret: str = Field(..., min_length=16)
 
-    # Grants table — read/written by the in-process reverse search. Optional on
-    # purpose: the partner-facing API runs without it, and the reverse-search
-    # poller is skipped (with a warning) when it's unset — so a missing value
-    # never crashes boot. Lives outside AIRTABLE_SCHEMA.md's partner-API set.
-    airtable_grants_table_id: str | None = Field(default=None, pattern=r"^tbl[A-Za-z0-9]{14}$")
+    # Grants table — read/written by the in-process reverse search. Hardcoded as
+    # the default (it's an identifier, not a secret) so the app always has it and
+    # reverse search runs without any env var; an AIRTABLE_GRANTS_TABLE_ID env var
+    # may still override it but isn't required. The type stays optional and the
+    # scheduler/repo still tolerate an absent value (defense in depth). Lives
+    # outside AIRTABLE_SCHEMA.md's partner-API set.
+    airtable_grants_table_id: str | None = Field(
+        default="tblnRV4RxCOv7X5u6", pattern=r"^tbl[A-Za-z0-9]{14}$"
+    )
 
     # --- Reverse search (in-process APScheduler) ---
     # Disabled in tests; the lifespan hook only starts the scheduler when true.

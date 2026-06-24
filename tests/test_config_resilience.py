@@ -1,8 +1,10 @@
-"""The reverse-search config is optional: a missing AIRTABLE_GRANTS_TABLE_ID must
-not crash the partner-facing API — it only disables the reverse-search poller.
+"""The grants table id is hardcoded as a baked-in default, so a missing
+AIRTABLE_GRANTS_TABLE_ID env var never crashes the partner-facing API — the app
+boots with the default and reverse search stays enabled.
 
-This guards the regression behind the boot crash-loop (a new required setting that
-wasn't present in the Render environment took the whole API down)."""
+This guards the regression behind the boot crash-loop (the id was once a required
+setting that wasn't present in the Render environment, taking the whole API down).
+The repo/scheduler still tolerate an explicit None as defense in depth."""
 
 from __future__ import annotations
 
@@ -11,11 +13,11 @@ from app.repositories.airtable import AirtableRepo
 
 
 def test_settings_boot_without_grants_table_id(monkeypatch):
-    # Simulate the env var being absent — this used to raise a ValidationError at
-    # import time and crash boot. Other required vars come from conftest's env.
+    # The env var being absent used to raise a ValidationError at import time and
+    # crash boot. Now the field has a hardcoded default, so it's always present.
     monkeypatch.delenv("AIRTABLE_GRANTS_TABLE_ID", raising=False)
     settings = Settings()
-    assert settings.airtable_grants_table_id is None
+    assert settings.airtable_grants_table_id == "tblnRV4RxCOv7X5u6"
 
 
 def test_repo_constructs_without_grants_table():

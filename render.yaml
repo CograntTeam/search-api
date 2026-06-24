@@ -31,8 +31,8 @@ services:
         value: tblLPLC7MfX7nuxyr
       - key: AIRTABLE_COMPANIES_TABLE_ID
         value: tblelf4Z6wnpDKr5K
-      - key: AIRTABLE_GRANTS_TABLE_ID
-        value: tblnRV4RxCOv7X5u6
+      # AIRTABLE_GRANTS_TABLE_ID is hardcoded in app/config.py (an identifier, not
+      # a secret) — no env var needed; set one only to override the default.
       - key: N8N_WEBHOOK_BASE_URL
         sync: false
       - key: INTERNAL_SHARED_SECRET
