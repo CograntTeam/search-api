@@ -20,9 +20,18 @@ from typing import Any
 
 from app.config import Settings
 from app.services.classification_prompt import build_classification_prompt
-from app.services.prompts import build_sanity_check_prompt
+from app.services.prompts import (
+    build_sanity_check_call_block,
+    build_sanity_check_prompt,
+    build_sanity_check_static_prefix,
+)
 
 logger = logging.getLogger(__name__)
+
+# A sanity-check context cache lives only for the forward-search run that creates
+# it (and is deleted when the run ends); this TTL is just a safety net so an
+# orphaned cache can't linger if cleanup is missed.
+_CACHE_TTL_SECONDS = 1800
 
 
 class GeminiError(RuntimeError):
@@ -107,13 +116,18 @@ class GeminiClient:
             self._genai_client = genai.Client(api_key=self.api_key)
         return self._genai_client
 
-    def _generate(self, prompt: str) -> tuple[str, dict[str, int]]:
+    def _generate(
+        self, prompt: str, *, cached_content: str | None = None
+    ) -> tuple[str, dict[str, int]]:
         from google.genai import types  # lazy import
 
+        config = types.GenerateContentConfig(response_mime_type="application/json")
+        if cached_content:
+            config.cached_content = cached_content
         resp = self._client().models.generate_content(
             model=self.model,
             contents=prompt,
-            config=types.GenerateContentConfig(response_mime_type="application/json"),
+            config=config,
         )
         text = resp.text or ""
         meta = getattr(resp, "usage_metadata", None)
@@ -121,33 +135,23 @@ class GeminiClient:
             "prompt": getattr(meta, "prompt_token_count", 0) or 0,
             "candidates": getattr(meta, "candidates_token_count", 0) or 0,
             "total": getattr(meta, "total_token_count", 0) or 0,
+            "cached": getattr(meta, "cached_content_token_count", 0) or 0,
         }
         return text, usage
 
-    async def sanity_check(
-        self,
-        *,
-        today: str,
-        company_description: str,
-        grant_name: str,
-        grant_description: str,
+    async def _run_decision(
+        self, prompt: str, *, cached_content: str | None = None
     ) -> tuple[dict[str, Any], dict[str, int]]:
-        """Run the sanity check; return ``(decision, token_usage)``.
-
-        Retries the model call when the output can't be parsed, mirroring the
-        n8n ``Parse Successful?`` loop. Raises :class:`GeminiError` if every
-        attempt fails.
-        """
-        prompt = build_sanity_check_prompt(
-            today=today,
-            company_description=company_description,
-            grant_name=grant_name,
-            grant_description=grant_description,
-        )
+        """Generate, parse, and extract the ``decision`` object, retrying on parse
+        failure (n8n ``Parse Successful?`` loop). Raises :class:`GeminiError` if
+        every attempt fails. ``cached_content`` references a context cache holding
+        the static prefix, so ``prompt`` is only the new (per-grant) input."""
         last_err: Exception | None = None
         for attempt in range(1, self.max_attempts + 1):
             try:
-                text, usage = await asyncio.to_thread(self._generate, prompt)
+                text, usage = await asyncio.to_thread(
+                    self._generate, prompt, cached_content=cached_content
+                )
                 decision = extract_decision(_sanitize_and_parse(text))
                 return decision, usage
             except (ValueError, GeminiError) as exc:
@@ -161,6 +165,86 @@ class GeminiClient:
         raise GeminiError(
             f"Could not parse Gemini output after {self.max_attempts} attempts: {last_err}"
         )
+
+    async def sanity_check(
+        self,
+        *,
+        today: str,
+        company_description: str,
+        grant_name: str,
+        grant_description: str,
+    ) -> tuple[dict[str, Any], dict[str, int]]:
+        """Run the sanity check on a single combined prompt; return
+        ``(decision, token_usage)``.
+
+        Used by the reverse search and as the forward search's fallback when no
+        context cache is available.
+        """
+        prompt = build_sanity_check_prompt(
+            today=today,
+            company_description=company_description,
+            grant_name=grant_name,
+            grant_description=grant_description,
+        )
+        return await self._run_decision(prompt)
+
+    async def sanity_check_cached(
+        self,
+        *,
+        cache_name: str,
+        grant_name: str,
+        grant_description: str,
+    ) -> tuple[dict[str, Any], dict[str, int]]:
+        """Sanity-check one grant against a context cache holding the rubric +
+        company (created by :meth:`create_sanity_cache`). Only the per-grant call
+        block is sent as new input; the cached prefix supplies the rest, so the
+        bulk of the prompt is billed at the reduced cached-input rate."""
+        prompt = build_sanity_check_call_block(
+            grant_name=grant_name, grant_description=grant_description
+        )
+        return await self._run_decision(prompt, cached_content=cache_name)
+
+    async def create_sanity_cache(
+        self, *, today: str, company_description: str
+    ) -> str | None:
+        """Create a context cache holding the grant-independent sanity-check prefix
+        (rubric + date + company) for one forward-search run; return its cache name.
+
+        Returns ``None`` when caching is unavailable for any reason - no API key, a
+        prefix below the model's minimum cacheable size, or any API error - so the
+        caller transparently falls back to :meth:`sanity_check`. Caching is a cost
+        optimisation and must never fail the search.
+        """
+        if not self.api_key:
+            return None
+        prefix = build_sanity_check_static_prefix(
+            today=today, company_description=company_description
+        )
+        try:
+            return await asyncio.to_thread(self._create_cache, prefix)
+        except Exception as exc:  # noqa: BLE001 - best-effort; degrade to no cache
+            logger.warning("gemini.cache_create_failed err=%s", exc)
+            return None
+
+    def _create_cache(self, prefix: str) -> str:
+        from google.genai import types  # lazy import
+
+        cache = self._client().caches.create(
+            model=self.model,
+            config=types.CreateCachedContentConfig(
+                display_name="sanity-check-prefix",
+                contents=[prefix],
+                ttl=f"{_CACHE_TTL_SECONDS}s",
+            ),
+        )
+        return cache.name
+
+    async def delete_cache(self, cache_name: str) -> None:
+        """Best-effort delete of a run's context cache (it also expires via TTL)."""
+        try:
+            await asyncio.to_thread(self._client().caches.delete, cache_name)
+        except Exception as exc:  # noqa: BLE001 - non-fatal; TTL will reap it
+            logger.warning("gemini.cache_delete_failed name=%s err=%s", cache_name, exc)
 
     async def classify_company(
         self, *, company_description: str, today: str

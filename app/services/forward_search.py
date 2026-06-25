@@ -200,16 +200,36 @@ class ForwardSearchService:
         today = date.today().isoformat()
         semaphore = asyncio.Semaphore(max(1, self.settings.forward_search_concurrency))
 
+        # The rubric + company are identical for every grant in this run, so cache
+        # them once and send only each grant's call block (cached input is billed
+        # far cheaper). Degrades to full per-grant prompts if caching is unavailable.
+        cache_name = await self.gemini.create_sanity_cache(
+            today=today, company_description=company_description
+        )
+        logger.info(
+            "forward_search.sanity_start company=%s grants=%d cached=%s",
+            company_id,
+            len(eligible),
+            bool(cache_name),
+        )
+
         async def evaluate(grant: dict[str, Any]) -> dict[str, Any]:
             gfields = grant.get("fields", {})
             async with semaphore:
                 try:
-                    decision, usage = await self.gemini.sanity_check(
-                        today=today,
-                        company_description=company_description,
-                        grant_name=_text(gfields.get("Name")),
-                        grant_description=_build_grant_description(gfields),
-                    )
+                    if cache_name:
+                        decision, usage = await self.gemini.sanity_check_cached(
+                            cache_name=cache_name,
+                            grant_name=_text(gfields.get("Name")),
+                            grant_description=_build_grant_description(gfields),
+                        )
+                    else:
+                        decision, usage = await self.gemini.sanity_check(
+                            today=today,
+                            company_description=company_description,
+                            grant_name=_text(gfields.get("Name")),
+                            grant_description=_build_grant_description(gfields),
+                        )
                 except GeminiError as exc:
                     return {"status": "error", "grant": grant, "error": str(exc)}
                 gate = evaluate_gate(decision)
@@ -221,9 +241,13 @@ class ForwardSearchService:
                     "reasons": gate.reasons,
                 }
 
-        results = await asyncio.gather(*(evaluate(g) for g in eligible))
+        try:
+            results = await asyncio.gather(*(evaluate(g) for g in eligible))
+        finally:
+            if cache_name:
+                await self.gemini.delete_cache(cache_name)
 
-        tokens = {"prompt": 0, "candidates": 0, "total": 0}
+        tokens = {"prompt": 0, "candidates": 0, "total": 0, "cached": 0}
         fail_reasons: Counter[str] = Counter()
         created = failed = errors = 0
 

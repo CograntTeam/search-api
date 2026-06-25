@@ -626,3 +626,33 @@ def build_sanity_check_prompt(
         f"<call>\nCall name: {grant_name}\n{grant_description}\n</call>\n\n"
     )
     return data_block + SANITY_CHECK_INSTRUCTIONS
+
+
+def build_sanity_check_static_prefix(*, today: str, company_description: str) -> str:
+    """The grant-independent head of the sanity-check prompt: the rubric, the date,
+    and the company. This is identical for every grant in one forward-search run,
+    so it is cached once (see :meth:`GeminiClient.create_sanity_cache`) and only
+    :func:`build_sanity_check_call_block` is sent per grant.
+
+    The rubric leads here (unlike :func:`build_sanity_check_prompt`, which the
+    reverse search keeps with the rubric last) so the whole block is a stable,
+    cacheable prefix. The data that follows keeps the same order as the combined
+    prompt, so the only change a grant call sees is the rubric moving to the front.
+    """
+    return SANITY_CHECK_INSTRUCTIONS + "\n\n" + (
+        f"Today is: {today} (look if deadline is not clearly missed, then not "
+        "eligible). If deadline is not present look at evaluation timeline, "
+        "project start date etc. \n\n"
+        "Company information:\n"
+        f"<company>\n{company_description}\n</company>\n\n"
+    )
+
+
+def build_sanity_check_call_block(*, grant_name: str, grant_description: str) -> str:
+    """The per-grant tail of the sanity-check prompt - the only part that varies
+    across grants in a forward-search run, sent as the new input on top of the
+    cached prefix from :func:`build_sanity_check_static_prefix`."""
+    return (
+        "Funding call information:\n"
+        f"<call>\nCall name: {grant_name}\n{grant_description}\n</call>\n\n"
+    )

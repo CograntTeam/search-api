@@ -103,19 +103,41 @@ def _grant(grant_id: str = "recG1") -> dict[str, Any]:
 
 
 class FakeGemini:
-    def __init__(self, *, decision: dict | None = None, classification: dict | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        decision: dict | None = None,
+        classification: dict | None = None,
+        cache_name: str | None = None,
+    ) -> None:
         self.decision = decision or PASS_DECISION
         self.classification = classification or CLASSIFICATION
+        self.cache_name = cache_name  # None → caching unavailable → fallback path
         self.classify_calls = 0
         self.sanity_calls = 0
+        self.cached_calls = 0
+        self.caches_created = 0
+        self.deleted_caches: list[str] = []
 
     async def classify_company(self, *, company_description, today):  # noqa: ANN001
         self.classify_calls += 1
-        return self.classification, {"prompt": 1, "candidates": 1, "total": 2}
+        return self.classification, {"prompt": 1, "candidates": 1, "total": 2, "cached": 0}
 
     async def sanity_check(self, *, today, company_description, grant_name, grant_description):  # noqa: ANN001
         self.sanity_calls += 1
-        return self.decision, {"prompt": 3, "candidates": 4, "total": 7}
+        return self.decision, {"prompt": 3, "candidates": 4, "total": 7, "cached": 0}
+
+    async def create_sanity_cache(self, *, today, company_description):  # noqa: ANN001
+        if self.cache_name:
+            self.caches_created += 1
+        return self.cache_name
+
+    async def sanity_check_cached(self, *, cache_name, grant_name, grant_description):  # noqa: ANN001
+        self.cached_calls += 1
+        return self.decision, {"prompt": 1, "candidates": 4, "total": 5, "cached": 2}
+
+    async def delete_cache(self, cache_name):  # noqa: ANN001
+        self.deleted_caches.append(cache_name)
 
 
 class FakeRepo:
@@ -216,3 +238,57 @@ async def test_missing_gemini_key_raises():
         await ForwardSearchService(
             repo, FakeGemini(), _settings(gemini_api_key=None)
         ).run_for_company("recCO1", api_job_id=uuid4())
+
+
+async def test_uses_context_cache_when_available():
+    repo = FakeRepo(_company(classified=True), [_grant("recG1"), _grant("recG2")])
+    gem = FakeGemini(cache_name="cachedContents/abc123")
+    summary = await ForwardSearchService(repo, gem, _settings()).run_for_company(
+        "recCO1", api_job_id=uuid4()
+    )
+    # One cache for the run; every grant goes through the cached path, never the
+    # full-prompt fallback.
+    assert gem.caches_created == 1
+    assert gem.cached_calls == 2
+    assert gem.sanity_calls == 0
+    # The cache is cleaned up when the run ends.
+    assert gem.deleted_caches == ["cachedContents/abc123"]
+    # Cached-token usage is surfaced in the job result.
+    assert summary["tokens"]["cached"] == 4  # 2 grants × 2 cached tokens each
+    assert summary["matches_created"] == 2
+
+
+async def test_falls_back_to_full_prompt_without_cache():
+    repo = FakeRepo(_company(classified=True), [_grant()])
+    gem = FakeGemini(cache_name=None)  # caching unavailable
+    summary = await ForwardSearchService(repo, gem, _settings()).run_for_company(
+        "recCO1", api_job_id=uuid4()
+    )
+    assert gem.sanity_calls == 1
+    assert gem.cached_calls == 0
+    assert gem.caches_created == 0
+    assert gem.deleted_caches == []
+    assert summary["matches_created"] == 1
+
+
+def test_sanity_prompt_split_is_cache_friendly():
+    from app.services.prompts import (
+        SANITY_CHECK_INSTRUCTIONS,
+        build_sanity_check_call_block,
+        build_sanity_check_static_prefix,
+    )
+
+    prefix = build_sanity_check_static_prefix(
+        today="2026-06-25", company_description="ACME builds AI tooling."
+    )
+    call = build_sanity_check_call_block(
+        grant_name="Eurostars Call 11", grant_description="R&D grant for SMEs."
+    )
+    # Rubric + company live in the cacheable prefix; the grant does NOT (otherwise
+    # the cache key would change per grant and never hit).
+    assert prefix.startswith(SANITY_CHECK_INSTRUCTIONS)
+    assert "ACME builds AI tooling." in prefix
+    assert "Eurostars Call 11" not in prefix
+    # Only the grant lives in the per-call tail; the rubric is never re-sent.
+    assert "Eurostars Call 11" in call and "R&D grant for SMEs." in call
+    assert SANITY_CHECK_INSTRUCTIONS not in call
