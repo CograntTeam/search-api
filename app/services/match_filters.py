@@ -291,3 +291,48 @@ def run_filter_funnel(
         survivors = kept
     funnel.eligible = survivors
     return funnel
+
+
+def run_company_funnel(
+    grants: Iterable[dict[str, Any]],
+    company_fields: Mapping[str, Any],
+    *,
+    today: date | None = None,
+) -> FilterFunnel:
+    """Forward search: filter GRANTS down to those one company is eligible for.
+
+    The inverse of :func:`run_filter_funnel`. The 12 clauses are symmetric
+    ``(company_fields, grant_fields) -> bool`` tests, so we reuse them verbatim
+    with ``company_fields`` fixed and iterate over grants. There is **no** Pro
+    "notification tier" gate — a partner-API search runs for the requesting
+    company regardless of tier. The first stage applies ``grant_precondition``
+    (enrichment + deadline), mirroring the n8n ``Get Initial Grant List2`` filter.
+
+    ``grants`` are Airtable-shaped rows: ``{"id": "rec...", "fields": {...}}``.
+    """
+    survivors = list(grants)
+    funnel = FilterFunnel(reviewed=len(survivors))
+
+    kept = [g for g in survivors if grant_precondition(g.get("fields", {}), today=today) is None]
+    funnel.stages.append(
+        FunnelStage("enrichment + deadline", dropped=len(survivors) - len(kept), remaining=len(kept))
+    )
+    survivors = kept
+
+    for name, fn in CLAUSES:
+        kept = []
+        dropped = 0
+        for g in survivors:
+            try:
+                passed = fn(company_fields, g.get("fields", {}))
+            except Exception:  # noqa: BLE001 — one bad row must not kill the run
+                logger.warning("filter.error clause=%s grant=%s", name, g.get("id"))
+                passed = False
+            if passed:
+                kept.append(g)
+            else:
+                dropped += 1
+        funnel.stages.append(FunnelStage(name=name, dropped=dropped, remaining=len(kept)))
+        survivors = kept
+    funnel.eligible = survivors
+    return funnel

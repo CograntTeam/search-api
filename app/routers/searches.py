@@ -17,7 +17,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Header, Response, statu
 
 from app.config import Settings, get_settings
 from app.errors import APIError, ErrorCode, openapi_error_responses
-from app.models.jobs import JobAccepted, JobCreate, JobStatus, JobView, WorkflowKind
+from app.models.jobs import Job, JobAccepted, JobCreate, JobStatus, JobView, WorkflowKind
 from app.models.keys import ApiKey
 from app.models.searches import (
     DEFAULT_LEAD_SOURCE,
@@ -31,7 +31,8 @@ from app.security import (
     get_repo,
     require_api_key,
 )
-from app.services.n8n import N8nClient
+from app.services.forward_search import ForwardSearchService
+from app.services.gemini_client import GeminiClient
 
 logger = logging.getLogger(__name__)
 
@@ -72,34 +73,70 @@ def _pydantic_errors(exc: Exception) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Background task: fire n8n, mark job running or failed.
+# Background task: run the in-process forward search, complete the job, fire the
+# partner callback. (Replaces the old n8n webhook dispatch.)
 # ---------------------------------------------------------------------------
-async def _dispatch_search(
-    job_id: UUID, payload: dict, settings: Settings, repo: AirtableRepo
-) -> None:
-    """Runs after the response is returned. Any exception ends up in the
-    job's ``error`` field, so partners see a proper failure instead of a
-    hung ``queued`` job.
-
-    The caller passes the request-scoped repo (pyairtable's Table is thread-
-    safe), which also lets tests inject a fake without patching.
-    """
-    client = N8nClient(settings)
+async def _fire_partner_callback(callback_url: str, job: Job) -> None:
+    """Best-effort POST of the completed job to the partner's callback URL.
+    Mirrors the callback in ``internal.complete_job``; partners poll as the source
+    of truth, so a callback error never retries or fails the job."""
+    payload = {
+        "job_id": str(job.job_id),
+        "status": job.status,
+        "workflow_kind": job.workflow_kind,
+        "company_id": job.request_payload.get("company_id"),
+        "result": job.result,
+        "error": job.error,
+    }
     try:
-        execution_id = await client.fire_search(job_id=job_id, payload=payload)
-        repo.set_job_running(job_id, n8n_execution_id=execution_id)
-        logger.info(
-            "search.dispatched job_id=%s execution_id=%s", job_id, execution_id
-        )
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
+            resp = await client.post(callback_url, json=payload)
+            logger.info(
+                "search.callback_sent job_id=%s status=%s", job.job_id, resp.status_code
+            )
     except httpx.HTTPError as exc:
-        logger.exception("search.dispatch_failed job_id=%s", job_id)
-        repo.complete_job(
-            job_id,
-            error=f"Failed to reach search workflow: {exc.__class__.__name__}",
-        )
-    except Exception:  # noqa: BLE001
-        logger.exception("search.dispatch_unexpected job_id=%s", job_id)
-        repo.complete_job(job_id, error="Internal dispatch error.")
+        logger.warning("search.callback_failed job_id=%s error=%s", job.job_id, exc)
+
+
+async def _dispatch_search(
+    job_id: UUID,
+    payload: dict,
+    settings: Settings,
+    repo: AirtableRepo,
+    callback_url: str | None = None,
+) -> None:
+    """Runs after the 202 response: execute the forward search in-process and
+    record the outcome on the job. Any failure lands in the job's ``error`` field
+    (and still fires the partner callback) so partners see a clean terminal state
+    instead of a job stuck in ``queued``.
+
+    The caller passes the request-scoped repo (pyairtable's Table is thread-safe),
+    which also lets tests inject a fake.
+    """
+    company_id = payload.get("company_id")
+    try:
+        repo.set_job_running(job_id)
+        if not settings.gemini_api_key:
+            # The forward search needs Gemini for classification + sanity-check.
+            logger.error("search.no_gemini job_id=%s", job_id)
+            updated = repo.complete_job(
+                job_id, error="Search engine unavailable (Gemini not configured)."
+            )
+        else:
+            service = ForwardSearchService(repo, GeminiClient(settings), settings)
+            summary = await service.run_for_company(company_id, api_job_id=job_id)
+            updated = repo.complete_job(job_id, result=summary)
+            logger.info(
+                "search.completed job_id=%s matches=%s",
+                job_id,
+                summary.get("matches_created"),
+            )
+    except Exception as exc:  # noqa: BLE001 — every failure becomes a job error
+        logger.exception("search.failed job_id=%s", job_id)
+        updated = repo.complete_job(job_id, error=f"Search failed: {exc.__class__.__name__}")
+
+    if callback_url and updated is not None:
+        await _fire_partner_callback(callback_url, updated)
 
 
 # ---------------------------------------------------------------------------
@@ -228,7 +265,9 @@ async def create_search(
         callback_url=body.callback_url,
         idempotency_key=idempotency_key,
     )
-    background.add_task(_dispatch_search, job_id, forwarded, settings, repo)
+    background.add_task(
+        _dispatch_search, job_id, forwarded, settings, repo, body.callback_url
+    )
     logger.info(
         "search.created job_id=%s partner=%s company_id=%s",
         job_id,

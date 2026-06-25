@@ -13,7 +13,7 @@ from uuid import UUID, uuid4
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.models.jobs import JobStatus
+from app.models.jobs import JobStatus, WorkflowKind
 
 from .test_searches import (
     FAKE_REPO,
@@ -91,19 +91,16 @@ def test_matches_other_partners_job_is_404():
 # ---------------------------------------------------------------------------
 # Status gating
 # ---------------------------------------------------------------------------
-def test_matches_queued_returns_409(monkeypatch):
-    async def fake_fire(self, *, job_id, payload):  # noqa: ANN001
-        return "exec_q"
-
-    monkeypatch.setattr("app.services.n8n.N8nClient.fire_search", fake_fire)
-
-    # Create via the real POST so status starts as queued.
-    r = client.post(
-        "/v1/searches",
-        json={"payload": {"company_id": "recABCDEFGHIJKLMN"}},
-        headers={"Authorization": f"Bearer {PARTNER_KEY_PLAINTEXT}"},
+def test_matches_queued_returns_409():
+    # Seed a queued job directly: the in-process dispatch would otherwise complete
+    # the job synchronously under the test client, so a POST never stays "queued".
+    job_id = uuid4()
+    FAKE_REPO.create_job(
+        job_id=job_id,
+        api_key_record_id=PARTNER_RECORD_ID,
+        workflow_kind=WorkflowKind.SEARCH,
+        request_payload={"company_id": "recABCDEFGHIJKLMN"},
     )
-    job_id = r.json()["job_id"]
 
     r2 = client.get(
         f"/v1/searches/{job_id}/matches",

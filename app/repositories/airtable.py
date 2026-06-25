@@ -408,6 +408,58 @@ class AirtableRepo:
                     out.add(cid)
         return out
 
+    def grant_ids_with_existing_matches(self, match_ids: list[str]) -> set[str]:
+        """Grant record IDs already linked by the given Search Match rows.
+
+        Forward-search dedup: pass a company's existing matches (its ``Search
+        Matches`` link) and get back the grants they already cover, so a re-run
+        only sanity-checks *new* grants. Mirrors
+        :meth:`company_ids_with_existing_matches` for the inverse direction.
+        """
+        out: set[str] = set()
+        for chunk in _chunks(match_ids, 50):
+            formula = "OR(" + ",".join(f"RECORD_ID()='{m}'" for m in chunk) + ")"
+            for rec in self._search_matches.all(formula=formula, fields=["Grant"]):
+                for gid in rec.get("fields", {}).get("Grant", []) or []:
+                    out.add(gid)
+        return out
+
+    # ------------------------------------------------------------------
+    # Forward search (company -> grants; run in-process from POST /v1/searches)
+    # ------------------------------------------------------------------
+    # Fields the forward search needs on the company: the classification-gate
+    # check + the 12 filter clauses + LLM input + dedup (existing matches).
+    _COMPANY_SEARCH_FIELDS = _COMPANY_FILTER_FIELDS + ["Search Matches", "Grant Search Status"]
+
+    def get_company_for_search(self, company_id: str) -> dict[str, Any] | None:
+        """One company by record id with the forward-search field set, or None."""
+        rows = self._companies.all(
+            formula=f"RECORD_ID() = '{company_id}'",
+            fields=self._COMPANY_SEARCH_FIELDS,
+            max_records=1,
+        )
+        return rows[0] if rows else None
+
+    def update_company_fields(
+        self, company_id: str, fields: dict[str, Any], *, typecast: bool = True
+    ) -> dict[str, Any]:
+        """Update arbitrary Company fields; returns the updated row (which carries
+        recomputed formula fields like ``Years of Establishment``)."""
+        return self._companies.update(company_id, fields, typecast=typecast)
+
+    def list_grants_for_filtering(self) -> list[dict[str, Any]]:
+        """Enriched grants with the filter + LLM fields — the forward funnel's
+        candidate set. Mirrors the n8n ``Get Initial Grant List2`` source: the
+        ``Data Enriched`` gate is applied server-side here; the deadline + 12
+        eligibility clauses run in :func:`match_filters.run_company_funnel`."""
+        if self._grants is None:
+            return []
+        # "Data Enriched" mirrors match_filters.SCRAPE_STATUS_READY.
+        return self._grants.all(
+            formula="{Scrape Status} = 'Data Enriched'",
+            fields=self._GRANT_FIELDS,
+        )
+
     # ------------------------------------------------------------------
     # Daily client-notification digest
     # ------------------------------------------------------------------

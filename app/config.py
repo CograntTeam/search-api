@@ -65,6 +65,12 @@ class Settings(BaseSettings):
     # one broad grant can't fan out into a huge token burst. 0 = no cap.
     reverse_search_max_companies: int = 50
 
+    # --- Forward (API) search: company -> eligible grants, run in-process ---
+    # Mirror the reverse-search bounds. Concurrency stays under Airtable's 5 req/s;
+    # the cap stops one broad company fanning out into a huge token burst (0 = none).
+    forward_search_concurrency: int = 5
+    forward_search_max_grants: int = 50
+
     # --- Gemini sanity-check LLM ---
     # Optional so the app still boots without it; the scheduler logs and skips
     # reverse-search runs when the key is absent.

@@ -19,6 +19,7 @@ import re
 from typing import Any
 
 from app.config import Settings
+from app.services.classification_prompt import build_classification_prompt
 from app.services.prompts import build_sanity_check_prompt
 
 logger = logging.getLogger(__name__)
@@ -159,4 +160,37 @@ class GeminiClient:
                 )
         raise GeminiError(
             f"Could not parse Gemini output after {self.max_attempts} attempts: {last_err}"
+        )
+
+    async def classify_company(
+        self, *, company_description: str, today: str
+    ) -> tuple[dict[str, Any], dict[str, int]]:
+        """Run the company classification (verbatim n8n *AI Agent3* prompt) and
+        return ``(classification, token_usage)``.
+
+        Unlike :meth:`sanity_check`, the output is the top-level classification
+        object (not wrapped in ``decision``). Retries on parse failure; raises
+        :class:`GeminiError` if every attempt fails.
+        """
+        prompt = build_classification_prompt(
+            company_description=company_description, today=today
+        )
+        last_err: Exception | None = None
+        for attempt in range(1, self.max_attempts + 1):
+            try:
+                text, usage = await asyncio.to_thread(self._generate, prompt)
+                parsed = _sanitize_and_parse(text)
+                if not isinstance(parsed, dict):
+                    raise GeminiError("Classification output was not a JSON object")
+                return parsed, usage
+            except (ValueError, GeminiError) as exc:
+                last_err = exc
+                logger.warning(
+                    "gemini.classify_retry attempt=%s/%s err=%s",
+                    attempt,
+                    self.max_attempts,
+                    exc,
+                )
+        raise GeminiError(
+            f"Could not parse classification after {self.max_attempts} attempts: {last_err}"
         )
