@@ -12,12 +12,37 @@ company's description).
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import re
+from datetime import UTC, date, datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 _CFG = ConfigDict(extra="allow", populate_by_name=True)
+
+
+def _normalize_iso_date(value: Any) -> str | None:
+    """Coerce the LLM's ``date_of_establishment`` to an Airtable-writable ISO date,
+    or ``None`` when it can't be parsed.
+
+    ``Date of Organisation Establishment`` is a date field, so a non-date string
+    (e.g. ``"2018"`` from "Founded 2018", or a sentence) would 422 the write —
+    and the prompt's JSON example shows ``"date_of_establishment": date``, so the
+    model does emit loose values. Full ISO is kept; a bare 4-digit year becomes
+    Jan 1; anything else is dropped (the field is optional)."""
+    if not isinstance(value, str):
+        return None
+    v = value.strip()
+    if re.fullmatch(r"\d{4}", v):
+        return f"{v}-01-01"
+    m = re.match(r"\d{4}-\d{2}-\d{2}", v)
+    if m:
+        try:
+            date.fromisoformat(m.group(0))
+        except ValueError:
+            return None
+        return m.group(0)
+    return None
 
 # Hardcoded at classification time, exactly as the n8n *Save Topic Area* node does
 # (the classifier does not decide these).
@@ -91,7 +116,7 @@ class CompanyClassification(BaseModel):
             "Application Area": self.verticality.vertical_sectors_impacted or ["Horizontal"],
             "Subject Expertise": self.subject_expertise.domains,
             "Organisation Archetype": archetype,
-            "Date of Organisation Establishment": eb.date_of_establishment,
+            "Date of Organisation Establishment": _normalize_iso_date(eb.date_of_establishment),
             # Hardcoded, per the n8n write-back.
             "Consortium Stance": _DEFAULT_CONSORTIUM_STANCE,
             "Acceptable Instruments": _DEFAULT_ACCEPTABLE_INSTRUMENTS,

@@ -50,6 +50,29 @@ def test_to_company_fields_maps_and_applies_defaults():
     assert f["Search Lite"] is False
 
 
+def test_year_only_date_becomes_jan_first():
+    # "Founded 2018" → the model often emits a bare year; a date field needs ISO.
+    c = CompanyClassification.model_validate(
+        {"eligibility_basics": {"date_of_establishment": "2018"}}
+    )
+    assert c.to_company_fields()["Date of Organisation Establishment"] == "2018-01-01"
+
+
+def test_unparseable_date_is_dropped_not_written():
+    # A non-date value must never be written (it would 422 the date field).
+    c = CompanyClassification.model_validate(
+        {"eligibility_basics": {"date_of_establishment": "circa 2018, unclear"}}
+    )
+    assert "Date of Organisation Establishment" not in c.to_company_fields()
+
+
+def test_full_iso_date_is_kept():
+    c = CompanyClassification.model_validate(
+        {"eligibility_basics": {"date_of_establishment": "2015-03-09T00:00:00.000Z"}}
+    )
+    assert c.to_company_fields()["Date of Organisation Establishment"] == "2015-03-09"
+
+
 def test_application_area_falls_back_to_horizontal():
     c = CompanyClassification.model_validate(
         {"verticality": {"is_horizontal": True, "vertical_sectors_impacted": []}}
