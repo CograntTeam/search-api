@@ -51,8 +51,9 @@ _CLASSIFICATION_FIELDS = (
     "Acceptable Instruments",
 )
 # Forward-search matches are partner-facing, not for the daily client digest, so
-# they are parked at "Idle" rather than "Pending" (which the digest pulls).
-_MATCH_NOTIFICATION_STATUS = "Idle"
+# they are marked "Skipped" (an existing status) rather than "Pending" (which the
+# digest query pulls), keeping them out of client emails.
+_MATCH_NOTIFICATION_STATUS = "Skipped"
 
 
 def _present(value: Any) -> bool:

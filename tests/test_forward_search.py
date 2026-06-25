@@ -159,7 +159,7 @@ async def test_classified_company_creates_match():
     assert summary["matches_created"] == 1
     assert len(repo.created) == 1
     match = repo.created[0]
-    assert match["Notification Status"] == "Idle"
+    assert match["Notification Status"] == "Skipped"
     assert match["api_job_id"] == str(job)
     assert match["Grant"] == ["recG1"]
     assert match["Company"] == ["recCO1"]
